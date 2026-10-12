@@ -150,6 +150,11 @@ def _snapshot(frame: pd.DataFrame, meta: dict, sid: str) -> dict:
     }
 
 
+@app.get("/")
+def root() -> dict:
+    return {"service": "Rwanda Economic God's Eye API", "docs": "/docs", "health": "/health"}
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "has_data": _has_data()}
