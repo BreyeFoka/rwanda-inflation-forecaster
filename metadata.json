@@ -1,0 +1,8 @@
+{
+  "name": "Remix Rwanda Inflation \u0026 Macroeconomic Engine",
+  "description": "Real-time economic indicator tracking, BNR target band monitoring, and AI-powered CPI inflation forecasting for Rwanda.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
