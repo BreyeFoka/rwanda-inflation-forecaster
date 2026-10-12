@@ -26,6 +26,25 @@ export interface MeteoSignal {
   anomalyPercent: string;
 }
 
+export interface LiveFeedStatus {
+  sourceName: string;
+  sourceUrl: string;
+  status: 'online' | 'synced' | 'connecting' | 'failed';
+  lastSyncTime: string;
+  latencyMs: number;
+  dataPointsCount: number;
+  sampleData: Record<string, any>;
+}
+
+export interface LiveSyncResult {
+  success: boolean;
+  message: string;
+  timestamp: string;
+  feeds: Record<string, LiveFeedStatus>;
+  updatedFields: string[];
+  updatedMacroData: MacroData;
+}
+
 export interface MacroData {
   metadata: {
     country: string;
@@ -33,6 +52,9 @@ export interface MacroData {
     baseYear: string;
     lastUpdated: string;
     bnrTargetBand: BnrTargetBand;
+    dataSourceMode?: 'LIVE_STREAMED' | 'OFFICIAL_BENCHMARK' | 'CUSTOM_INGESTED';
+    liveSyncTimestamp?: string;
+    liveFeeds?: Record<string, LiveFeedStatus>;
   };
   clusterA_officialDomestic: {
     nisr: {

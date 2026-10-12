@@ -17,6 +17,7 @@ import { DataClustersView } from './components/DataClustersView';
 import { ProvincialHeatmap } from './components/ProvincialHeatmap';
 import { AiAnalystPanel } from './components/AiAnalystPanel';
 import { PolicyBriefModal } from './components/PolicyBriefModal';
+import { DataProvenanceModal } from './components/DataProvenanceModal';
 import { runTimesFmForecast } from './services/timesfmEngine';
 import {
   Activity,
@@ -205,6 +206,8 @@ export default function App() {
   const [source, setSource] = useState<string>('gemini-3.8-flash');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState<boolean>(false);
+  const [isProvenanceModalOpen, setIsProvenanceModalOpen] = useState<boolean>(false);
+  const [isLiveSyncing, setIsLiveSyncing] = useState<boolean>(false);
   const [toast, setToast] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>({
     type: 'success',
     message: 'Macroeconomic surveillance live. BNR target band (2%–8%) and NISR vectors operational.'
@@ -247,6 +250,36 @@ export default function App() {
       }
     } catch (e) {
       console.warn("Using offline macro indicators fallback", e);
+    }
+  };
+
+  const handleSyncLiveData = async () => {
+    setIsLiveSyncing(true);
+    setToast({
+      type: 'info',
+      message: 'Connecting to live real-world APIs (Open Exchange Rates, Open-Meteo Satellite, World Bank Open Data)...'
+    });
+    try {
+      const res = await fetch('/api/live-sync', { method: 'POST' });
+      if (!res.ok) throw new Error(`Live sync returned HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.success && json.updatedState) {
+        setMacroData(json.updatedState);
+        if (json.timesfm) setTimesFmData(json.timesfm);
+        if (json.econometrics) setEconometrics(json.econometrics);
+        const liveUsd = json.updatedState.clusterA_officialDomestic.bnr.exchangeRates.usdRwf;
+        setToast({
+          type: 'success',
+          message: `Real live data synced! Live USD/RWF: ${liveUsd.toLocaleString()} RWF. 5 provincial climate grids & World Bank benchmarks updated.`
+        });
+      }
+    } catch (err: any) {
+      setToast({
+        type: 'error',
+        message: 'Live sync notice: ' + (err.message || 'Check network connection')
+      });
+    } finally {
+      setIsLiveSyncing(false);
     }
   };
 
@@ -556,11 +589,30 @@ export default function App() {
             </div>
 
             {/* Quick action buttons */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSyncLiveData}
+                disabled={isLiveSyncing}
+                className="px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                title="Fetch real-time live data from Open Exchange Rates, Open-Meteo Satellite, and World Bank"
+              >
+                <Globe2 className={`w-3.5 h-3.5 text-sky-400 ${isLiveSyncing ? 'animate-spin' : ''}`} />
+                {isLiveSyncing ? 'Syncing...' : 'Sync Live Real Data'}
+              </button>
+
+              <button
+                onClick={() => setIsProvenanceModalOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                title="Audit data authenticity: Real APIs vs Official Sovereign Publications"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                Data Authenticity
+              </button>
+
               <button
                 onClick={() => runForecastCycle()}
                 disabled={isLoading}
-                className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md disabled:opacity-50"
+                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md disabled:opacity-50"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 {isLoading ? 'Forecasting...' : 'Run Gemini Forecast'}
@@ -568,7 +620,7 @@ export default function App() {
 
               <button
                 onClick={() => setIsPolicyModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                className="hidden md:inline-flex px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs items-center gap-1.5 transition-colors"
               >
                 <FileText className="w-3.5 h-3.5 text-emerald-400" />
                 Policy Brief & Schema
@@ -577,7 +629,7 @@ export default function App() {
               <a
                 href="/api/download-project"
                 download="rwanda-inflation-engine.tar.gz"
-                className="hidden sm:inline-flex px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 font-semibold text-xs items-center gap-1.5 transition-colors"
+                className="hidden lg:inline-flex px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 font-semibold text-xs items-center gap-1.5 transition-colors"
                 title="Download full project source code archive (.tar.gz)"
               >
                 <Download className="w-3.5 h-3.5 text-blue-400" />
@@ -744,6 +796,57 @@ export default function App() {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
+            {/* Live Data Authenticity Strip */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border border-slate-800 bg-slate-900/90 shadow-md">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg border ${
+                  macroData.metadata.dataSourceMode === 'LIVE_STREAMED'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                }`}>
+                  <Globe2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-white">Data Authenticity Status:</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                      macroData.metadata.dataSourceMode === 'LIVE_STREAMED'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                    }`}>
+                      {macroData.metadata.dataSourceMode === 'LIVE_STREAMED' ? '● Real Live Connected' : '● Official Benchmark Mode'}
+                    </span>
+                    {macroData.metadata.liveSyncTimestamp && (
+                      <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">
+                        (Synced {new Date(macroData.metadata.liveSyncTimestamp).toLocaleTimeString()})
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Live FX (USD/RWF {bnr.exchangeRates.usdRwf.toLocaleString()}) • Open-Meteo Satellite (5 Provinces) • World Bank Official Series • NISR Monthly Bulletin ({macroData.metadata.lastUpdated})
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSyncLiveData}
+                  disabled={isLiveSyncing}
+                  className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors shadow disabled:opacity-50"
+                >
+                  <Globe2 className={`w-3.5 h-3.5 ${isLiveSyncing ? 'animate-spin' : ''}`} />
+                  {isLiveSyncing ? 'Fetching Real Data...' : 'Sync Real Live Data'}
+                </button>
+                <button
+                  onClick={() => setIsProvenanceModalOpen(true)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  Audit Sources
+                </button>
+              </div>
+            </div>
+
             {/* Top row: CPI Chart & Attribution Card */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-7">
@@ -1251,6 +1354,15 @@ export default function App() {
         report={forecastReport}
         macroData={macroData}
         source={source}
+      />
+
+      {/* Data Authenticity & Provenance Modal */}
+      <DataProvenanceModal
+        isOpen={isProvenanceModalOpen}
+        onClose={() => setIsProvenanceModalOpen(false)}
+        macroData={macroData}
+        onSyncLive={handleSyncLiveData}
+        isSyncing={isLiveSyncing}
       />
     </div>
   );
