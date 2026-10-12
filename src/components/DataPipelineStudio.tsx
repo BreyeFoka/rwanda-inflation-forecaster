@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DataPipelineRunResult,
   DataPipelineStage,
   MacroData
 } from '../types';
+import { getNextMonthName } from '../services/timesfmEngine';
 import {
   Play,
   RotateCcw,
@@ -21,7 +22,13 @@ import {
   ArrowRight,
   Sparkles,
   Copy,
-  Check
+  Check,
+  FileSpreadsheet,
+  BookOpen,
+  AlertCircle,
+  HelpCircle,
+  TrendingUp,
+  RefreshCw
 } from 'lucide-react';
 
 interface Props {
@@ -32,6 +39,14 @@ interface Props {
   onDataIngested?: (updatedData: MacroData) => void;
 }
 
+const SAMPLE_CSV = `month,headline,urban,rural,usdRwf,brentCrude
+Nov 2026,5.3,4.9,5.6,1392.0,80.5
+Dec 2026,5.1,4.7,5.4,1395.0,79.2
+Jan 2027,4.8,4.5,5.0,1397.5,77.8
+Feb 2027,4.6,4.3,4.8,1400.0,76.5
+Mar 2027,4.7,4.4,4.9,1402.0,78.0
+Apr 2027,4.9,4.6,5.1,1405.0,79.5`;
+
 export const DataPipelineStudio: React.FC<Props> = ({
   pipelineResult,
   onRunPipeline,
@@ -39,17 +54,40 @@ export const DataPipelineStudio: React.FC<Props> = ({
   macroData,
   onDataIngested
 }) => {
-  const [activeTab, setActiveTab] = useState<'stages' | 'ingestion' | 'code'>('stages');
+  const [activeTab, setActiveTab] = useState<'stages' | 'ingestion' | 'csv' | 'code' | 'specification'>('stages');
   const [selectedStageId, setSelectedStageId] = useState<string>('stage-1-harvester');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedDoc, setCopiedDoc] = useState(false);
 
   // Ingestion form state
+  const lastMonth = macroData.metadata.lastUpdated || "October 2026";
+  const [ingestMonth, setIngestMonth] = useState(() => getNextMonthName(lastMonth, 1));
   const [ingestHeadline, setIngestHeadline] = useState(macroData.clusterA_officialDomestic.nisr.headlineCPI.toString());
   const [ingestUrban, setIngestUrban] = useState(macroData.clusterA_officialDomestic.nisr.urbanCPI.toString());
   const [ingestRural, setIngestRural] = useState(macroData.clusterA_officialDomestic.nisr.ruralCPI.toString());
   const [ingestUsd, setIngestUsd] = useState(macroData.clusterA_officialDomestic.bnr.exchangeRates.usdRwf.toString());
+  const [ingestBrent, setIngestBrent] = useState(macroData.clusterB_regionalTradeAndFuel.fuelAndLogistics.brentCrudeUSD.toString());
+  const [ingestCbr, setIngestCbr] = useState(macroData.clusterA_officialDomestic.bnr.cbrRate.toString());
   const [isIngesting, setIsIngesting] = useState(false);
-  const [ingestStatus, setIngestStatus] = useState<string | null>(null);
+  const [ingestStatus, setIngestStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // CSV State
+  const [csvText, setCsvText] = useState('');
+  const [isCsvIngesting, setIsCsvIngesting] = useState(false);
+  const [csvStatus, setCsvStatus] = useState<{ type: 'success' | 'error'; message: string; rows?: number } | null>(null);
+
+  // Keep form updated when macroData changes
+  useEffect(() => {
+    setIngestMonth(getNextMonthName(macroData.metadata.lastUpdated || "October 2026", 1));
+    setIngestHeadline(macroData.clusterA_officialDomestic.nisr.headlineCPI.toString());
+    setIngestUrban(macroData.clusterA_officialDomestic.nisr.urbanCPI.toString());
+    setIngestRural(macroData.clusterA_officialDomestic.nisr.ruralCPI.toString());
+    setIngestUsd(macroData.clusterA_officialDomestic.bnr.exchangeRates.usdRwf.toString());
+    setIngestBrent(macroData.clusterB_regionalTradeAndFuel.fuelAndLogistics.brentCrudeUSD.toString());
+    setIngestCbr(macroData.clusterA_officialDomestic.bnr.cbrRate.toString());
+  }, [macroData.metadata.lastUpdated]);
+
+  const historyLength = macroData.clusterA_officialDomestic.nisr.cpiHistory.length;
 
   const stages: DataPipelineStage[] = pipelineResult?.stages || [
     {
@@ -57,10 +95,10 @@ export const DataPipelineStudio: React.FC<Props> = ({
       name: "Multi-Source Harvester & Ingestion",
       status: "completed",
       latencyMs: 18,
-      recordsProcessed: 148,
+      recordsProcessed: historyLength * 4 + 52,
       description: "Ingesting raw feeds from NISR Open Data, BNR Daily FX, MINAGRI e-Soko, Meteo Rwanda API & EAC Corridors.",
       details: {
-        nisrFeeds: "Urban & Rural CPI tables (Base Feb 2014=100)",
+        nisrFeeds: `Urban & Rural CPI tables (${historyLength} historical months)`,
         bnrFeeds: "Daily interbank FX bulletin, M2/M3 aggregates, CBR decisions",
         minagriFeeds: "e-Soko wholesale commodity tracking (beans, maize, Irish potatoes, cassava)",
         meteoFeeds: "Satellite rainfall anomalies across 5 provinces",
@@ -68,10 +106,10 @@ export const DataPipelineStudio: React.FC<Props> = ({
       },
       logs: [
         "[INFO] Connected to NISR portal (Monthly CPI publication)",
-        "[INFO] Fetched BNR policy rates (CBR=6.50%, USD/RWF=1388.50)",
+        `[INFO] Fetched BNR policy rates (CBR=${macroData.clusterA_officialDomestic.bnr.cbrRate.toFixed(2)}%, USD/RWF=${macroData.clusterA_officialDomestic.bnr.exchangeRates.usdRwf.toFixed(2)})`,
         "[INFO] Retrieved MINAGRI e-Soko wholesale commodity basket (5 key crops)",
         "[INFO] Streamed Meteo Rwanda precipitation matrices (Northern +8%, Eastern -14%)",
-        "[SUCCESS] 148 raw indicator records verified and queued."
+        `[SUCCESS] ${historyLength * 4 + 52} raw indicator records verified and queued.`
       ],
       timestamp: new Date().toISOString()
     },
@@ -80,7 +118,7 @@ export const DataPipelineStudio: React.FC<Props> = ({
       name: "Data Cleaning, Imputation & Normalization",
       status: "completed",
       latencyMs: 12,
-      recordsProcessed: 148,
+      recordsProcessed: historyLength * 4 + 52,
       description: "Rebasing CPI indices, seasonal price smoothing, and winsorization of freight outliers.",
       details: {
         rebasingTarget: "February 2014 = 100",
@@ -88,7 +126,7 @@ export const DataPipelineStudio: React.FC<Props> = ({
         outlierFilter: "3-sigma threshold on Rusumo corridor transit delays"
       },
       logs: [
-        "[INFO] Validated schema for 148 input fields",
+        `[INFO] Validated schema for ${historyLength * 4 + 52} input fields`,
         "[INFO] Re-indexed monthly dates to ISO-8601 YYYY-MM period timestamps",
         "[INFO] Handled seasonal crop price variances for dry beans and Kinigi potatoes",
         "[SUCCESS] 100% clean record integrity achieved (0 null entries)."
@@ -121,17 +159,17 @@ export const DataPipelineStudio: React.FC<Props> = ({
       name: "TimesFM Foundation Model Tokenizer & Tensor Packing",
       status: "completed",
       latencyMs: 16,
-      recordsProcessed: 24,
-      description: "Tokenizing 24-month historical context into 32-patch tokens with frequency identifier 'M'.",
+      recordsProcessed: Math.min(24, historyLength),
+      description: `Tokenizing ${Math.min(24, historyLength)}-month historical context into 32-patch tokens with frequency identifier 'M'.`,
       details: {
-        contextWindowLen: 24,
+        contextWindowLen: Math.min(24, historyLength),
         patchLength: 32,
         stride: 32,
         temporalMarker: "M (Monthly frequency)",
         covariateCount: 4
       },
       logs: [
-        "[INFO] Formatted 24-month historical context vector [Nov 2023 - Oct 2025]",
+        `[INFO] Formatted ${Math.min(24, historyLength)}-month historical context vector [Latest: ${macroData.metadata.lastUpdated}]`,
         "[INFO] Injected exogenous covariate tensors (FX, Meteo, Fuel, CBR)",
         "[INFO] Tokenized continuous sequence into TimesFM 32-element patch representations",
         "[SUCCESS] Ready for zero-shot decoder-only transformer inference."
@@ -172,27 +210,144 @@ export const DataPipelineStudio: React.FC<Props> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          source: 'NISR',
+          month: ingestMonth.trim(),
           headlineCPI: parseFloat(ingestHeadline),
           urbanCPI: parseFloat(ingestUrban),
           ruralCPI: parseFloat(ingestRural),
-          usdRwf: parseFloat(ingestUsd)
+          usdRwf: parseFloat(ingestUsd),
+          brentCrudeUSD: parseFloat(ingestBrent),
+          cbrRate: parseFloat(ingestCbr)
         })
       });
 
-      if (res.ok) {
-        const json = await res.json();
-        setIngestStatus("Batch successfully validated & ingested into active surveillance pipeline.");
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setIngestStatus({
+          type: 'success',
+          message: `Observation for ${ingestMonth} ingested! TimesFM fan chart and BNR target corridor calibrated.`
+        });
         if (json.updatedState && onDataIngested) {
           onDataIngested(json.updatedState);
         }
       } else {
-        setIngestStatus("Failed to ingest data batch. Verify field formats.");
+        setIngestStatus({
+          type: 'error',
+          message: json.error || "Failed to ingest data batch. Verify field formats."
+        });
       }
     } catch (err: any) {
-      setIngestStatus(`Ingestion error: ${err.message}`);
+      setIngestStatus({
+        type: 'error',
+        message: `Ingestion error: ${err.message}`
+      });
     } finally {
       setIsIngesting(false);
+    }
+  };
+
+  const handleCsvSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!csvText.trim()) return;
+    setIsCsvIngesting(true);
+    setCsvStatus(null);
+    try {
+      const res = await fetch('/api/pipeline/ingest-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csvText })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setCsvStatus({
+          type: 'success',
+          message: json.message,
+          rows: json.recordsParsed
+        });
+        if (json.updatedState && onDataIngested) {
+          onDataIngested(json.updatedState);
+        }
+      } else {
+        setCsvStatus({
+          type: 'error',
+          message: json.error || "Failed to parse CSV payload."
+        });
+      }
+    } catch (err: any) {
+      setCsvStatus({
+        type: 'error',
+        message: `CSV Ingestion error: ${err.message}`
+      });
+    } finally {
+      setIsCsvIngesting(false);
+    }
+  };
+
+  const handleApplyPreset = async (preset: {
+    month: string;
+    headline: number;
+    urban: number;
+    rural: number;
+    usd: number;
+    brent: number;
+    cbr: number;
+  }) => {
+    setIngestMonth(preset.month);
+    setIngestHeadline(preset.headline.toString());
+    setIngestUrban(preset.urban.toString());
+    setIngestRural(preset.rural.toString());
+    setIngestUsd(preset.usd.toString());
+    setIngestBrent(preset.brent.toString());
+    setIngestCbr(preset.cbr.toString());
+
+    setIsIngesting(true);
+    setIngestStatus(null);
+    try {
+      const res = await fetch('/api/pipeline/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          month: preset.month,
+          headlineCPI: preset.headline,
+          urbanCPI: preset.urban,
+          ruralCPI: preset.rural,
+          usdRwf: preset.usd,
+          brentCrudeUSD: preset.brent,
+          cbrRate: preset.cbr
+        })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setIngestStatus({
+          type: 'success',
+          message: `Scenario '${preset.month}' successfully applied! TimesFM auto-forecast recalibrated.`
+        });
+        if (json.updatedState && onDataIngested) {
+          onDataIngested(json.updatedState);
+        }
+      }
+    } catch (err: any) {
+      setIngestStatus({ type: 'error', message: err.message });
+    } finally {
+      setIsIngesting(false);
+    }
+  };
+
+  const handleResetPipeline = async () => {
+    if (!window.confirm("Reset dataset back to official October 2026 baseline surveillance?")) return;
+    try {
+      const res = await fetch('/api/pipeline/reset', { method: 'POST' });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        if (json.updatedState && onDataIngested) {
+          onDataIngested(json.updatedState);
+        }
+        setIngestStatus({
+          type: 'success',
+          message: 'Dataset reset to October 2026 baseline.'
+        });
+      }
+    } catch (err: any) {
+      setIngestStatus({ type: 'error', message: err.message });
     }
   };
 
@@ -227,6 +382,15 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
+  const handleCopySpec = () => {
+    const specDoc = `# Rwanda Macroeconomic & Inflation Intelligence Engine
+## System Specification Document
+(Full specification stored in /SYSTEM_SPECIFICATION.md)`;
+    navigator.clipboard.writeText(specDoc);
+    setCopiedDoc(true);
+    setTimeout(() => setCopiedDoc(false), 2000);
+  };
+
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-5 shadow-xl backdrop-blur-sm space-y-5">
       {/* Header & Controls */}
@@ -237,9 +401,14 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-wide">
-                Automated 5-Stage Rwanda Macro Data Pipeline & ETL
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white tracking-wide">
+                  Automated 5-Stage Rwanda Macro Data Pipeline & ETL
+                </h3>
+                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono font-bold">
+                  Last Sync: {macroData.metadata.lastUpdated} ({historyLength} Months)
+                </span>
+              </div>
               <p className="text-xs text-slate-400">
                 End-to-end ingestion from NISR, BNR, MINAGRI & Meteo into Google TimesFM Tokenizer
               </p>
@@ -252,7 +421,7 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
           <div className="flex bg-slate-950 rounded-lg p-1 border border-slate-800 text-xs">
             <button
               onClick={() => setActiveTab('stages')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer ${
                 activeTab === 'stages' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -260,20 +429,38 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
             </button>
             <button
               onClick={() => setActiveTab('ingestion')}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer ${
                 activeTab === 'ingestion' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Data Ingestion Console
+              Ingestion Console
+            </button>
+            <button
+              onClick={() => setActiveTab('csv')}
+              className={`px-3 py-1.5 rounded-md font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                activeTab === 'csv' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Bulk CSV
             </button>
             <button
               onClick={() => setActiveTab('code')}
-              className={`px-3 py-1.5 rounded-md font-medium flex items-center gap-1 transition-colors ${
+              className={`px-3 py-1.5 rounded-md font-medium flex items-center gap-1 transition-colors cursor-pointer ${
                 activeTab === 'code' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <FileCode className="w-3.5 h-3.5" />
-              Python Script (.py)
+              Python Pipeline
+            </button>
+            <button
+              onClick={() => setActiveTab('specification')}
+              className={`px-3 py-1.5 rounded-md font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                activeTab === 'specification' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5 text-sky-400" />
+              Specification Docs
             </button>
           </div>
 
@@ -300,105 +487,101 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
 
       {/* STAGES TAB */}
       {activeTab === 'stages' && (
-        <div className="space-y-5">
-          {/* Pipeline Stage Breadcrumbs / Progress */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Stages List */}
+          <div className="lg:col-span-5 space-y-2.5">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+              Sequential Pipeline Stages
+            </span>
+
             {stages.map((stage, idx) => {
               const isSelected = stage.id === selectedStageId;
               return (
-                <button
+                <div
                   key={stage.id}
                   onClick={() => setSelectedStageId(stage.id)}
-                  className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden ${
+                  className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-slate-800/90 border-emerald-500/60 shadow-lg ring-1 ring-emerald-500/30'
-                      : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-900/50'
+                      ? 'bg-slate-800/90 border-emerald-500/50 shadow-md'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
                   }`}
                 >
-                  <div className="flex items-center justify-between text-[11px] mb-1">
-                    <span className="font-mono text-slate-400 font-bold">Stage {idx + 1}</span>
-                    <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                      <CheckCircle2 className="w-3 h-3" /> {stage.latencyMs}ms
-                    </span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-5 h-5 rounded-full bg-slate-900 border border-slate-700 text-slate-300 font-mono text-[10px] flex items-center justify-center font-bold">
+                        {idx + 1}
+                      </span>
+                      <span className="text-xs font-bold text-slate-200">
+                        {stage.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        {stage.latencyMs}ms
+                      </span>
+                    </div>
                   </div>
-                  <div className="font-semibold text-xs text-slate-200 truncate">
-                    {stage.name}
+
+                  <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                    {stage.description}
+                  </p>
+
+                  <div className="flex items-center justify-between pt-2 mt-2 border-t border-slate-800/60 text-[10px] text-slate-500 font-mono">
+                    <span>Records: {stage.recordsProcessed}</span>
+                    <span>Status: {stage.status}</span>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    {stage.recordsProcessed} records processed
-                  </div>
-                </button>
+                </div>
               );
             })}
           </div>
 
-          {/* Selected Stage Detail & Logs */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* Stage Info */}
-            <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <span className="text-xs font-bold text-slate-200 uppercase tracking-wide">
-                  Stage Specification
-                </span>
-                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
-                  Status: Completed
-                </span>
-              </div>
-
+          {/* Stage Details & Logs */}
+          <div className="lg:col-span-7 p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h4 className="text-sm font-bold text-white">{selectedStage.name}</h4>
-                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                  {selectedStage.description}
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-emerald-400" />
+                  {selectedStage.name}
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Real-time transformation metrics & execution trace
                 </p>
               </div>
-
-              <div className="space-y-2 pt-2 border-t border-slate-800/80 text-xs">
-                <span className="text-[11px] font-mono text-slate-400 uppercase font-semibold block">
-                  Configuration & Tensors:
-                </span>
-                {Object.entries(selectedStage.details).map(([k, v]) => (
-                  <div key={k} className="p-2 rounded bg-slate-900 border border-slate-800/60 font-mono text-[11px]">
-                    <span className="text-slate-400 block text-[10px]">{k}:</span>
-                    <span className="text-emerald-300 font-medium">{String(v)}</span>
-                  </div>
-                ))}
-              </div>
+              <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md">
+                Latency: {selectedStage.latencyMs}ms
+              </span>
             </div>
 
-            {/* Stage Execution Terminal Logs */}
-            <div className="lg:col-span-7 p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800 text-xs">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-emerald-400" />
-                    <span className="font-mono text-slate-300 font-semibold">Pipeline Stage Logs</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono">
-                    Executed: {selectedStage.timestamp.slice(11, 19)} UTC
+            {/* Stage Metadata Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              {Object.entries(selectedStage.details).map(([key, value]) => (
+                <div key={key} className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                  <span className="text-[10px] font-mono text-slate-400 block uppercase tracking-wide">
+                    {key.replace(/([A-Z])/g, ' $1').trim()}
+                  </span>
+                  <span className="text-slate-200 font-semibold font-mono text-[11px] mt-0.5 block truncate">
+                    {String(value)}
                   </span>
                 </div>
+              ))}
+            </div>
 
-                <div className="space-y-1.5 font-mono text-xs max-h-56 overflow-y-auto pr-1">
-                  {selectedStage.logs.map((log, i) => (
-                    <div
-                      key={i}
-                      className={`leading-relaxed ${
-                        log.includes('[SUCCESS]')
-                          ? 'text-emerald-400 font-semibold'
-                          : log.includes('[WARN]')
-                          ? 'text-amber-400'
-                          : 'text-slate-300'
-                      }`}
-                    >
+            {/* Execution Logs */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wide block">
+                Execution Logs:
+              </span>
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-[11px] font-mono text-slate-300 space-y-1 max-h-48 overflow-y-auto">
+                {selectedStage.logs.map((log, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-emerald-500 select-none">&gt;</span>
+                    <span className={log.includes('[SUCCESS]') ? 'text-emerald-400' : 'text-slate-300'}>
                       {log}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-3 mt-3 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between font-mono">
-                <span>Latency: {selectedStage.latencyMs}ms</span>
-                <span>Throughput: {selectedStage.recordsProcessed} records / batch</span>
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -409,25 +592,60 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
       {activeTab === 'ingestion' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           <div className="lg:col-span-7 p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-4">
-            <div>
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <Upload className="w-4 h-4 text-emerald-400" />
-                Manual Data Ingestion Console
-              </h4>
-              <p className="text-xs text-slate-400 mt-1">
-                Inject newly published monthly indicators from NISR or BNR to immediately update surveillance and TimesFM inputs.
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-emerald-400" />
+                  Manual Monthly Data Ingestion Console
+                </h4>
+                <p className="text-xs text-slate-400 mt-1">
+                  Inject newly published indicators into active memory. TimesFM auto-forecast recalibrates immediately.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetPipeline}
+                className="px-2.5 py-1 text-[11px] rounded bg-slate-900 border border-slate-700 text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer"
+                title="Reset to October 2026 baseline"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Reset Baseline
+              </button>
             </div>
 
             <form onSubmit={handleIngestSubmit} className="space-y-3.5 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2 flex items-center gap-2">
+                  <div className="flex-1">
+                    <label className="text-slate-300 font-medium block mb-1">
+                      Target Month Period
+                    </label>
+                    <input
+                      type="text"
+                      value={ingestMonth}
+                      onChange={(e) => setIngestMonth(e.target.value)}
+                      placeholder="e.g. Nov 2026"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIngestMonth(getNextMonthName(ingestMonth, 1))}
+                    className="mt-5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-mono text-xs cursor-pointer"
+                    title="Increment month by 1"
+                  >
+                    +1 Month
+                  </button>
+                </div>
+
                 <div>
                   <label className="text-slate-300 font-medium block mb-1">
                     Headline CPI (%)
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.05"
                     value={ingestHeadline}
                     onChange={(e) => setIngestHeadline(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
@@ -450,12 +668,13 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
                 </div>
 
                 <div>
-                  <label className="text-slate-300 font-medium block mb-1">
-                    Urban CPI (%) (25.8% Food)
+                  <label className="text-slate-300 font-medium block mb-1 flex items-center justify-between">
+                    <span>Urban CPI (%)</span>
+                    <span className="text-[10px] text-slate-500">25.8% Food Weight</span>
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.05"
                     value={ingestUrban}
                     onChange={(e) => setIngestUrban(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
@@ -464,27 +683,54 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
                 </div>
 
                 <div>
-                  <label className="text-slate-300 font-medium block mb-1">
-                    Rural CPI (%) (46.2% Food)
+                  <label className="text-slate-300 font-medium block mb-1 flex items-center justify-between">
+                    <span>Rural CPI (%)</span>
+                    <span className="text-[10px] text-emerald-400">46.2% Food Weight</span>
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.05"
                     value={ingestRural}
                     onChange={(e) => setIngestRural(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
                     required
                   />
                 </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">
+                    Brent Crude ($/bbl)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={ingestBrent}
+                    onChange={(e) => setIngestBrent(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-medium block mb-1">
+                    Central Bank Rate CBR (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.25"
+                    value={ingestCbr}
+                    onChange={(e) => setIngestCbr(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               {ingestStatus && (
                 <div className={`p-3 rounded-lg text-xs font-mono ${
-                  ingestStatus.includes('successfully')
+                  ingestStatus.type === 'success'
                     ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
                     : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
                 }`}>
-                  {ingestStatus}
+                  {ingestStatus.message}
                 </div>
               )}
 
@@ -493,58 +739,205 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
                 disabled={isIngesting}
                 className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
               >
-                {isIngesting ? 'Validating Batch...' : 'Ingest Batch into Active Surveillance Pipeline'}
+                {isIngesting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Validating & Re-Forecasting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Ingest Record & Auto-Forecast (TimesFM)</span>
+                  </>
+                )}
               </button>
             </form>
           </div>
 
-          <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3 text-xs">
+          {/* Quick Scenario Presets */}
+          <div className="lg:col-span-5 p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3.5 text-xs">
             <span className="font-bold text-slate-200 uppercase tracking-wide block">
-              Active Data Connectors Health
+              1-Click Macroeconomic Shocks / Test Presets
             </span>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Test how the TimesFM foundation model handles major sovereign economic events:
+            </p>
 
             <div className="space-y-2">
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 flex justify-between items-center">
-                <div>
-                  <span className="font-semibold text-slate-200 block">NISR Monthly CPI Portal</span>
-                  <span className="text-[10px] text-slate-400">Status: Automated Polling (Monthly)</span>
+              <button
+                type="button"
+                onClick={() => handleApplyPreset({
+                  month: "Nov 2026",
+                  headline: 4.4,
+                  urban: 4.3,
+                  rural: 4.5,
+                  usd: 1390.0,
+                  brent: 75.0,
+                  cbr: 6.50
+                })}
+                className="w-full p-2.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 text-left transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-emerald-300 group-hover:text-emerald-200">
+                    🌾 Season A Bumper Harvest
+                  </span>
+                  <span className="font-mono text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded">
+                    Disinflation (4.4%)
+                  </span>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                  Online (38ms)
-                </span>
-              </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Surplus bean & potato harvest lowers rural food basket; headline drops safely towards 4.4%.
+                </p>
+              </button>
 
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 flex justify-between items-center">
-                <div>
-                  <span className="font-semibold text-slate-200 block">BNR Open Monetary Statistics</span>
-                  <span className="text-[10px] text-slate-400">Status: Daily FX & CBR Corridor</span>
+              <button
+                type="button"
+                onClick={() => handleApplyPreset({
+                  month: "Nov 2026",
+                  headline: 6.4,
+                  urban: 6.7,
+                  rural: 6.1,
+                  usd: 1440.0,
+                  brent: 92.5,
+                  cbr: 6.50
+                })}
+                className="w-full p-2.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 text-left transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-amber-300 group-hover:text-amber-200">
+                    ⛽ EAC Fuel & FX Spike
+                  </span>
+                  <span className="font-mono text-[10px] bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded">
+                    Import Shock (6.4%)
+                  </span>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                  Online (22ms)
-                </span>
-              </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Global Brent crude rises to $92.5/bbl; USD/RWF depreciates to 1,440. Transmits into Urban CPI via freight.
+                </p>
+              </button>
 
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 flex justify-between items-center">
-                <div>
-                  <span className="font-semibold text-slate-200 block">MINAGRI e-Soko Granary Feeds</span>
-                  <span className="text-[10px] text-slate-400">Status: 5 Staple Crops Wholesales</span>
+              <button
+                type="button"
+                onClick={() => handleApplyPreset({
+                  month: "Nov 2026",
+                  headline: 6.8,
+                  urban: 5.4,
+                  rural: 7.7,
+                  usd: 1395.0,
+                  brent: 78.0,
+                  cbr: 6.50
+                })}
+                className="w-full p-2.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 text-left transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-rose-300 group-hover:text-rose-200">
+                    ☀️ Eastern Province Dry Spell
+                  </span>
+                  <span className="font-mono text-[10px] bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded">
+                    Drought Shock (6.8%)
+                  </span>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                  Online (45ms)
-                </span>
-              </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Delayed rains in Nyagatare/Kayonza tighten legume supply, driving Rural CPI to 7.7% near upper corridor.
+                </p>
+              </button>
 
-              <div className="p-2.5 rounded bg-slate-900 border border-slate-800 flex justify-between items-center">
-                <div>
-                  <span className="font-semibold text-slate-200 block">Meteo Rwanda Weather Matrix</span>
-                  <span className="text-[10px] text-slate-400">Status: 5 Provinces Moisture Anomalies</span>
+              <button
+                type="button"
+                onClick={() => handleApplyPreset({
+                  month: "Nov 2026",
+                  headline: 4.8,
+                  urban: 4.6,
+                  rural: 5.0,
+                  usd: 1385.0,
+                  brent: 77.0,
+                  cbr: 7.25
+                })}
+                className="w-full p-2.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 text-left transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-sky-300 group-hover:text-sky-200">
+                    🏦 Hawkish BNR Rate Hike (+75 bps)
+                  </span>
+                  <span className="font-mono text-[10px] bg-sky-500/10 text-sky-400 px-1.5 py-0.5 rounded">
+                    CBR to 7.25%
+                  </span>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                  Online (51ms)
-                </span>
-              </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  BNR raises CBR to 7.25% to stabilize currency expectations and moderate private sector credit growth.
+                </p>
+              </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* BULK CSV INGESTION TAB */}
+      {activeTab === 'csv' && (
+        <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-4 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <div>
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                Bulk CSV Dataset Ingestion
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Paste or load multi-month NISR macroeconomic time-series for automated ingestion into TimesFM
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCsvText(SAMPLE_CSV)}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              Load Sample 6-Month Dataset
+            </button>
+          </div>
+
+          <form onSubmit={handleCsvSubmit} className="space-y-3">
+            <div>
+              <label className="text-slate-300 font-medium block mb-1 font-mono text-[11px]">
+                CSV Format (Required headers: <code>month,headline,urban,rural,usdRwf,brentCrude</code>)
+              </label>
+              <textarea
+                value={csvText}
+                onChange={(e) => setCsvText(e.target.value)}
+                placeholder="Paste CSV here or click 'Load Sample 6-Month Dataset'..."
+                rows={8}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-slate-100 font-mono text-[11px] leading-relaxed focus:border-emerald-500 focus:outline-none"
+              />
+            </div>
+
+            {csvStatus && (
+              <div className={`p-3 rounded-lg text-xs font-mono ${
+                csvStatus.type === 'success'
+                  ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
+              }`}>
+                {csvStatus.message}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isCsvIngesting || !csvText.trim()}
+              className="px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {isCsvIngesting ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Parsing & Ingesting Dataset...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Ingest Batch & Recalibrate TimesFM</span>
+                </>
+              )}
+            </button>
+          </form>
         </div>
       )}
 
@@ -558,7 +951,7 @@ print("12-Month Ahead Forecast:", forecast_mean)`;
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCopyPythonScript}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs flex items-center gap-1.5 transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 {copiedCode ? 'Copied Script!' : 'Copy Python Code'}
@@ -608,6 +1001,87 @@ forecast_mean, forecast_quantiles = tfm.forecast(
 print("TimesFM 12-Month Projections (Mean):", forecast_mean[0])
 print("TimesFM Quantiles (p10, p25, p50, p75, p90):", forecast_quantiles[0])`}
           </pre>
+        </div>
+      )}
+
+      {/* SYSTEM SPECIFICATION DOCS TAB */}
+      {activeTab === 'specification' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between text-xs text-slate-400 pb-2 border-b border-slate-800">
+            <span className="font-semibold text-slate-200 flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              Sovereign Macroeconomic Surveillance Specification (SYSTEM_SPECIFICATION.md)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopySpec}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                {copiedDoc ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedDoc ? 'Copied Docs!' : 'Copy Specification'}
+              </button>
+
+              <a
+                href="/SYSTEM_SPECIFICATION.md"
+                download="SYSTEM_SPECIFICATION.md"
+                className="px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download SYSTEM_SPECIFICATION.md
+              </a>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-4 max-h-[500px] overflow-y-auto font-sans leading-relaxed">
+            <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300">
+              <strong>Overview:</strong> This specification document defines the architectural standards, mathematical models, transmission lag elasticities, and operational procedures for Rwanda's sovereign inflation forecasting engine.
+            </div>
+
+            <div className="space-y-2">
+              <h5 className="font-bold text-white text-sm">1. Dual-Core Forecasting Engine</h5>
+              <p>
+                <strong>Google TimesFM 2.0:</strong> Pretrained decoder-only causal patch transformer (500M parameters) operating zero-shot on 24-month historical context windows. Tokenizes inputs into 32-element continuous patches and generates 7 quantile heads (p05 through p95) with variance scaling across the forecast horizon.
+              </p>
+              <p>
+                <strong>Gemini 3.8 Flash Macro Analyst:</strong> Real-time qualitative and econometric reasoning engine grounded in BNR's 2%–8% target corridor, NISR urban vs rural consumption splits, MINAGRI harvest seasons, and EAC logistics manifests.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <h5 className="font-bold text-white text-sm">2. Transmission Lags & Elasticities</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono text-[11px]">
+                <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                  <strong className="text-emerald-400">USD/RWF Currency Pass-Through:</strong>
+                  <div>Lag: 30–60 Days</div>
+                  <div>Impact: +0.90% Headline CPI per +10% FX</div>
+                </div>
+                <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                  <strong className="text-amber-400">Precipitation Deficit (Meteo):</strong>
+                  <div>Lag: 60–90 Days</div>
+                  <div>Impact: +1.10% Headline CPI per -10% Rain</div>
+                </div>
+                <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                  <strong className="text-rose-400">Brent Crude & Freight Tariffs:</strong>
+                  <div>Lag: 15–30 Days</div>
+                  <div>Impact: +0.70% Headline CPI per +10% Brent</div>
+                </div>
+                <div className="p-2.5 rounded bg-slate-900 border border-slate-800">
+                  <strong className="text-sky-400">Central Bank Rate (CBR):</strong>
+                  <div>Lag: 90–180 Days</div>
+                  <div>Impact: -0.40% Headline CPI per +100 bps CBR</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h5 className="font-bold text-white text-sm">3. Verification & Edge-Case Safeguards</h5>
+              <ul className="list-disc pl-5 space-y-1 text-slate-400">
+                <li>Automatic bounds clamping prevents NaN or runaway inflation curves in extreme scenarios.</li>
+                <li>Monotonic date progression rolling forward from any base observation string.</li>
+                <li>Resilient fallback to instant econometric transmission calculations if network or API latencies occur.</li>
+              </ul>
+            </div>
+          </div>
         </div>
       )}
     </div>

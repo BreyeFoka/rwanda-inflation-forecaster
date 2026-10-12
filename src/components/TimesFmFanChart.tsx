@@ -39,8 +39,10 @@ export const TimesFmFanChart: React.FC<Props> = ({
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
 
-  const minVal = 0.0;
-  const maxVal = 10.5;
+  // Dynamically calculate scale limits to accommodate shocks or historical peaks without clipping
+  const allValues = points.flatMap(p => [p.mean, p.q95, p.q05, p.urbanMean, p.ruralMean, bnrBand.upper, bnrBand.lower]);
+  const minVal = Math.floor(Math.min(0, ...allValues));
+  const maxVal = Math.ceil(Math.max(10.5, ...allValues) + 0.5);
 
   const getY = (val: number) => {
     const clamped = Math.max(minVal, Math.min(maxVal, val));

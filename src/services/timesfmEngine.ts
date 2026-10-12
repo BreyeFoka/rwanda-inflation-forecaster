@@ -35,20 +35,43 @@ export const HISTORICAL_CPI_24M = [
   { month: "Oct 2025", headline: 5.1, urban: 4.8, rural: 5.4, fx: 1388.5, rain: -14, brent: 78.5, cbr: 6.50 }
 ];
 
-// Months sequence for 12-month forward forecast horizon (Nov 2025 to Oct 2026)
-const FORECAST_MONTHS_12 = [
-  "Nov 2025", "Dec 2025", "Jan 2026", "Feb 2026",
-  "Mar 2026", "Apr 2026", "May 2026", "Jun 2026",
-  "Jul 2026", "Aug 2026", "Sep 2026", "Oct 2026"
-];
+// Helper to roll forward months from any base month string (e.g. "Oct 2025" -> "Nov 2025", "Dec 2025"...)
+export function getNextMonthName(baseMonthStr: string, offsetMonths: number): string {
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let year = 2025;
+  let monthIdx = 9; // Oct default
+
+  if (baseMonthStr) {
+    const parts = baseMonthStr.trim().split(/[\s-]+/);
+    if (parts.length >= 2) {
+      if (/^\d{4}$/.test(parts[0])) {
+        // e.g. "2025-10"
+        year = parseInt(parts[0], 10);
+        monthIdx = Math.max(0, Math.min(11, parseInt(parts[1], 10) - 1));
+      } else {
+        // e.g. "Oct 2025" or "October 2026"
+        const mStr = parts[0].toLowerCase().slice(0, 3);
+        const found = monthNames.findIndex(m => m.toLowerCase() === mStr);
+        if (found !== -1) monthIdx = found;
+        const pYear = parseInt(parts[1], 10);
+        if (!isNaN(pYear)) year = pYear;
+      }
+    }
+  }
+
+  const targetDate = new Date(year, monthIdx + offsetMonths, 1);
+  return `${monthNames[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
+}
 
 /**
  * Google TimesFM Foundation Model Inference Simulator
  * Implements Google TimesFM 2.0 architecture principles:
+ * - Dynamic context window ingestion from actual MacroData NISR history
  * - Patching tokenization (P=32, stride 32)
  * - Zero-shot causal transformer projection
  * - Dynamic exogenous covariate ingestion (FX, Meteo, Fuel, CBR)
  * - Multi-horizon probabilistic quantile output heads (p05, p10, p25, p50, p75, p90, p95)
+ * - Dynamic calendar-aware roll forward matching Rwanda agricultural seasons
  */
 export function runTimesFmForecast(
   macroData: MacroData,
@@ -64,33 +87,56 @@ export function runTimesFmForecast(
   };
 
   // Convert adjustments to normalized shock coefficients
-  const fxShock = adj.usdRwfChangePct / 10;          // +10% -> 1.0 unit
-  const rainDeficit = -adj.rainfallAnomalyPct / 10;   // -10% rain -> 1.0 unit deficit
-  const fuelShock = adj.brentCrudeChangePct / 10;     // +10% brent -> 1.0 unit
-  const cbrShock = adj.cbrRateChangeBps / 100;        // +100 bps -> 1.0 unit
+  const fxShock = (adj.usdRwfChangePct || 0) / 10;          // +10% -> 1.0 unit
+  const rainDeficit = -(adj.rainfallAnomalyPct || 0) / 10;   // -10% rain -> 1.0 unit deficit
+  const fuelShock = (adj.brentCrudeChangePct || 0) / 10;     // +10% brent -> 1.0 unit
+  const cbrShock = (adj.cbrRateChangeBps || 0) / 100;        // +100 bps -> 1.0 unit
 
-  // Starting baseline values (Oct 2025)
-  const lastHistorical = HISTORICAL_CPI_24M[HISTORICAL_CPI_24M.length - 1];
-  let curHeadline = lastHistorical.headline;
-  let curUrban = lastHistorical.urban;
-  let curRural = lastHistorical.rural;
+  // Extract real historical series from macroData or fallback to baseline
+  const nisrHistory = macroData?.clusterA_officialDomestic?.nisr?.cpiHistory;
+  const historySeries = Array.isArray(nisrHistory) && nisrHistory.length > 0
+    ? nisrHistory
+    : HISTORICAL_CPI_24M;
+
+  // Starting baseline values from latest historical record or top-level metrics
+  const lastHistorical = historySeries[historySeries.length - 1];
+  const baseMonthStr = lastHistorical?.month || macroData?.metadata?.lastUpdated || "Oct 2025";
+  let curHeadline = typeof lastHistorical?.headline === 'number'
+    ? lastHistorical.headline
+    : macroData?.clusterA_officialDomestic?.nisr?.headlineCPI || 5.1;
+  let curUrban = typeof lastHistorical?.urban === 'number'
+    ? lastHistorical.urban
+    : macroData?.clusterA_officialDomestic?.nisr?.urbanCPI || 4.8;
+  let curRural = typeof lastHistorical?.rural === 'number'
+    ? lastHistorical.rural
+    : macroData?.clusterA_officialDomestic?.nisr?.ruralCPI || 5.4;
+
+  // Sanitize numerical inputs to prevent NaN or extreme corruption
+  curHeadline = isNaN(curHeadline) ? 5.1 : Math.max(0.1, curHeadline);
+  curUrban = isNaN(curUrban) ? 4.8 : Math.max(0.1, curUrban);
+  curRural = isNaN(curRural) ? 5.4 : Math.max(0.1, curRural);
 
   const points: TimesFmForecastPoint[] = [];
 
-  // Add historical points for context
-  for (const h of HISTORICAL_CPI_24M.slice(-12)) {
+  // Add up to 24 historical points for context window
+  const contextSlice = historySeries.slice(-Math.min(24, historySeries.length));
+  for (const h of contextSlice) {
+    const hHead = typeof h.headline === 'number' && !isNaN(h.headline) ? h.headline : curHeadline;
+    const hUrb = typeof h.urban === 'number' && !isNaN(h.urban) ? h.urban : curUrban;
+    const hRur = typeof h.rural === 'number' && !isNaN(h.rural) ? h.rural : curRural;
+
     points.push({
       month: h.month,
-      mean: h.headline,
-      median: h.headline,
-      urbanMean: h.urban,
-      ruralMean: h.rural,
-      q05: h.headline,
-      q10: h.headline,
-      q25: h.headline,
-      q75: h.headline,
-      q90: h.headline,
-      q95: h.headline,
+      mean: hHead,
+      median: hHead,
+      urbanMean: hUrb,
+      ruralMean: hRur,
+      q05: hHead,
+      q10: hHead,
+      q25: hHead,
+      q75: hHead,
+      q90: hHead,
+      q95: hHead,
       isForecast: false
     });
   }
@@ -100,9 +146,11 @@ export function runTimesFmForecast(
   let peakVal = 0;
   let peakMonth = "";
   let breachCount = 0;
+  const safeHorizon = Math.max(1, Math.min(24, horizonSteps || 12));
 
-  for (let step = 0; step < Math.min(horizonSteps, FORECAST_MONTHS_12.length); step++) {
-    const monthName = FORECAST_MONTHS_12[step];
+  for (let step = 0; step < safeHorizon; step++) {
+    // Dynamically calculate forward month name
+    const monthName = getNextMonthName(baseMonthStr, step + 1);
 
     // TimesFM Autoregressive Kernel:
     // 1. Mean reversion towards BNR 5.0% medium-term anchor (lambda = 0.88 monthly retention)
@@ -128,13 +176,13 @@ export function runTimesFmForecast(
 
     // Update headline step
     const netDelta = meanReversionPull + fuelWeight + fxWeight + rainWeight + cbrDampening + seasonalFactor;
-    curHeadline = Number(Math.max(1.0, curHeadline + netDelta).toFixed(2));
+    curHeadline = Number(Math.max(0.5, curHeadline + netDelta).toFixed(2));
 
     // Urban vs Rural Basket Weighting split:
     // Rural has 46.2% food weight -> highly sensitized to rainWeight
     // Urban has higher FX / imported weight -> sensitized to fxWeight and fuelWeight
-    curRural = Number(Math.max(1.0, curRural + meanReversionPull + rainWeight * 1.45 + fuelWeight * 0.6 + fxWeight * 0.6 + cbrDampening + seasonalFactor * 1.3).toFixed(2));
-    curUrban = Number(Math.max(1.0, curUrban + meanReversionPull + fxWeight * 1.35 + fuelWeight * 1.1 + rainWeight * 0.65 + cbrDampening + seasonalFactor * 0.7).toFixed(2));
+    curRural = Number(Math.max(0.5, curRural + meanReversionPull + rainWeight * 1.45 + fuelWeight * 0.6 + fxWeight * 0.6 + cbrDampening + seasonalFactor * 1.3).toFixed(2));
+    curUrban = Number(Math.max(0.5, curUrban + meanReversionPull + fxWeight * 1.35 + fuelWeight * 1.1 + rainWeight * 0.65 + cbrDampening + seasonalFactor * 0.7).toFixed(2));
 
     const spread = Math.abs(curRural - curUrban);
     if (spread > maxSpread) maxSpread = spread;
@@ -175,7 +223,7 @@ export function runTimesFmForecast(
     });
   }
 
-  const corridorBreachRiskPct = Math.round((breachCount / horizonSteps) * 100);
+  const corridorBreachRiskPct = Math.round((breachCount / safeHorizon) * 100);
 
   return {
     points,
@@ -183,8 +231,8 @@ export function runTimesFmForecast(
       name: "Google TimesFM (Time-series Foundation Model)",
       version: "2.0-500m-multivariate-quantiles",
       architecture: "Decoder-only Patch Transformer with Quantile Regression Heads",
-      contextWindow: 24,
-      horizonSteps,
+      contextWindow: Math.min(24, historySeries.length),
+      horizonSteps: safeHorizon,
       patchLength: 32,
       frequency: "M (Monthly Macroeconomic Surveillance)",
       covariatesUsed: [
@@ -197,7 +245,7 @@ export function runTimesFmForecast(
       latencyMs: Date.now() - startTime
     },
     summary: {
-      peakInflationMonth: peakMonth || "May 2026",
+      peakInflationMonth: peakMonth || getNextMonthName(baseMonthStr, 1),
       peakInflationVal: Number(peakVal.toFixed(2)),
       corridorBreachRiskPct,
       projectedConvergence: points[points.length - 1].mean <= 6.0 && points[points.length - 1].mean >= 4.0

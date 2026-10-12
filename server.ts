@@ -559,12 +559,16 @@ Rwanda's headline inflation currently sits at **${headline}%**, squarely positio
   }
 });
 
+// Deep clone baseline snapshot to enable pristine reset
+const BASELINE_MACRO_DATA_SNAPSHOT: MacroData = JSON.parse(JSON.stringify(MACRO_DATA));
+
 // POST /api/timesfm/predict - Google TimesFM 2.0 Foundation Model Multi-Step Forecast
 app.post('/api/timesfm/predict', (req: Request, res: Response) => {
   try {
-    const { adjustments, horizonSteps } = req.body || {};
+    const { adjustments, horizonSteps, customData } = req.body || {};
     const horizon = typeof horizonSteps === 'number' && horizonSteps > 0 && horizonSteps <= 24 ? horizonSteps : 12;
-    const result = runTimesFmForecast(MACRO_DATA, adjustments, horizon);
+    const targetData = customData && typeof customData === 'object' ? customData : MACRO_DATA;
+    const result = runTimesFmForecast(targetData, adjustments, horizon);
     res.json({
       success: true,
       data: result
@@ -592,21 +596,24 @@ app.post('/api/pipeline/run', async (req: Request, res: Response) => {
 
 // GET /api/pipeline/status - Retrieve pipeline ingestion health & metrics
 app.get('/api/pipeline/status', (req: Request, res: Response) => {
+  const historyLen = MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory.length;
   res.json({
     success: true,
     status: "healthy",
     lastRun: new Date().toISOString(),
+    lastObservation: MACRO_DATA.metadata.lastUpdated,
+    totalHistoricalMonths: historyLen,
     connectors: [
-      { name: "NISR Open Data Portal", status: "online", latencyMs: 38, records: 48, lastSync: "October 2026" },
-      { name: "BNR Monetary Statistics", status: "online", latencyMs: 22, records: 32, lastSync: "October 2026" },
-      { name: "MINAGRI e-Soko Market Feeds", status: "online", latencyMs: 45, records: 18, lastSync: "October 2026" },
-      { name: "Meteo Rwanda Weather Matrix", status: "online", latencyMs: 51, records: 15, lastSync: "October 2026" },
-      { name: "EAC Trade & Logistics Corridors", status: "online", latencyMs: 64, records: 35, lastSync: "October 2026" }
+      { name: "NISR Open Data Portal", status: "online", latencyMs: 38, records: historyLen * 3, lastSync: MACRO_DATA.metadata.lastUpdated },
+      { name: "BNR Monetary Statistics", status: "online", latencyMs: 22, records: 32, lastSync: MACRO_DATA.metadata.lastUpdated },
+      { name: "MINAGRI e-Soko Market Feeds", status: "online", latencyMs: 45, records: 18, lastSync: MACRO_DATA.metadata.lastUpdated },
+      { name: "Meteo Rwanda Weather Matrix", status: "online", latencyMs: 51, records: 15, lastSync: MACRO_DATA.metadata.lastUpdated },
+      { name: "EAC Trade & Logistics Corridors", status: "online", latencyMs: 64, records: 35, lastSync: MACRO_DATA.metadata.lastUpdated }
     ],
     timesfmModel: {
       name: "Google TimesFM 2.0 (Decoder-only Foundation Transformer)",
       version: "2.0-500m-multivariate",
-      contextLength: 24,
+      contextLength: Math.min(24, historyLen),
       defaultHorizon: 12,
       patchLength: 32,
       frequency: "M (Monthly)"
@@ -617,28 +624,261 @@ app.get('/api/pipeline/status', (req: Request, res: Response) => {
 // POST /api/pipeline/ingest - Ingest new monthly indicators or custom data points
 app.post('/api/pipeline/ingest', (req: Request, res: Response) => {
   try {
-    const { source, headlineCPI, urbanCPI, ruralCPI, usdRwf, staplePrices } = req.body || {};
-    
-    if (typeof headlineCPI === 'number') {
-      MACRO_DATA.clusterA_officialDomestic.nisr.headlineCPI = headlineCPI;
+    const {
+      month,
+      headlineCPI,
+      urbanCPI,
+      ruralCPI,
+      usdRwf,
+      brentCrudeUSD,
+      rainfallAnomalyPct,
+      cbrRate,
+      staplePrices,
+      historyBatch,
+      adjustments
+    } = req.body || {};
+
+    const warnings: string[] = [];
+    let updatedPointsCount = 0;
+
+    // Validate and update headline CPI
+    if (typeof headlineCPI === 'number' && !isNaN(headlineCPI)) {
+      if (headlineCPI < -5.0 || headlineCPI > 50.0) {
+        warnings.push(`Headline CPI (${headlineCPI}%) is an extreme macroeconomic outlier.`);
+      }
+      MACRO_DATA.clusterA_officialDomestic.nisr.headlineCPI = Number(headlineCPI.toFixed(2));
+      updatedPointsCount++;
     }
-    if (typeof urbanCPI === 'number') {
-      MACRO_DATA.clusterA_officialDomestic.nisr.urbanCPI = urbanCPI;
+
+    // Validate and update urban CPI
+    if (typeof urbanCPI === 'number' && !isNaN(urbanCPI)) {
+      MACRO_DATA.clusterA_officialDomestic.nisr.urbanCPI = Number(urbanCPI.toFixed(2));
+      updatedPointsCount++;
     }
-    if (typeof ruralCPI === 'number') {
-      MACRO_DATA.clusterA_officialDomestic.nisr.ruralCPI = ruralCPI;
+
+    // Validate and update rural CPI
+    if (typeof ruralCPI === 'number' && !isNaN(ruralCPI)) {
+      MACRO_DATA.clusterA_officialDomestic.nisr.ruralCPI = Number(ruralCPI.toFixed(2));
+      updatedPointsCount++;
     }
-    if (typeof usdRwf === 'number') {
-      MACRO_DATA.clusterA_officialDomestic.bnr.exchangeRates.usdRwf = usdRwf;
+
+    // If month is provided, update or append to cpiHistory
+    if (typeof month === 'string' && month.trim().length > 0) {
+      const cleanMonth = month.trim();
+      MACRO_DATA.metadata.lastUpdated = cleanMonth;
+      
+      const targetHeadline = typeof headlineCPI === 'number' ? headlineCPI : MACRO_DATA.clusterA_officialDomestic.nisr.headlineCPI;
+      const targetUrban = typeof urbanCPI === 'number' ? urbanCPI : MACRO_DATA.clusterA_officialDomestic.nisr.urbanCPI;
+      const targetRural = typeof ruralCPI === 'number' ? ruralCPI : MACRO_DATA.clusterA_officialDomestic.nisr.ruralCPI;
+
+      const history = MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory;
+      const existingIdx = history.findIndex(p => p.month.toLowerCase() === cleanMonth.toLowerCase());
+      
+      if (existingIdx !== -1) {
+        history[existingIdx] = {
+          month: cleanMonth,
+          headline: targetHeadline,
+          urban: targetUrban,
+          rural: targetRural
+        };
+      } else {
+        history.push({
+          month: cleanMonth,
+          headline: targetHeadline,
+          urban: targetUrban,
+          rural: targetRural
+        });
+      }
+      updatedPointsCount++;
     }
+
+    // Batch history ingestion
+    if (Array.isArray(historyBatch) && historyBatch.length > 0) {
+      for (const item of historyBatch) {
+        if (item && item.month && typeof item.headline === 'number') {
+          const hIdx = MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory.findIndex(
+            p => p.month.toLowerCase() === item.month.trim().toLowerCase()
+          );
+          const newEntry = {
+            month: item.month.trim(),
+            headline: Number(item.headline.toFixed(2)),
+            urban: typeof item.urban === 'number' ? Number(item.urban.toFixed(2)) : Number(item.headline.toFixed(2)),
+            rural: typeof item.rural === 'number' ? Number(item.rural.toFixed(2)) : Number(item.headline.toFixed(2))
+          };
+          if (hIdx !== -1) {
+            MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory[hIdx] = newEntry;
+          } else {
+            MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory.push(newEntry);
+          }
+          updatedPointsCount++;
+        }
+      }
+      const lastItem = historyBatch[historyBatch.length - 1];
+      if (lastItem) {
+        MACRO_DATA.metadata.lastUpdated = lastItem.month;
+        MACRO_DATA.clusterA_officialDomestic.nisr.headlineCPI = lastItem.headline;
+        if (typeof lastItem.urban === 'number') MACRO_DATA.clusterA_officialDomestic.nisr.urbanCPI = lastItem.urban;
+        if (typeof lastItem.rural === 'number') MACRO_DATA.clusterA_officialDomestic.nisr.ruralCPI = lastItem.rural;
+      }
+    }
+
+    // Validate and update USD/RWF
+    if (typeof usdRwf === 'number' && !isNaN(usdRwf) && usdRwf > 500 && usdRwf < 5000) {
+      MACRO_DATA.clusterA_officialDomestic.bnr.exchangeRates.usdRwf = Number(usdRwf.toFixed(2));
+      updatedPointsCount++;
+    }
+
+    // Validate and update Brent Crude
+    if (typeof brentCrudeUSD === 'number' && !isNaN(brentCrudeUSD) && brentCrudeUSD > 10 && brentCrudeUSD < 250) {
+      MACRO_DATA.clusterB_regionalTradeAndFuel.fuelAndLogistics.brentCrudeUSD = Number(brentCrudeUSD.toFixed(2));
+      updatedPointsCount++;
+    }
+
+    // Validate and update CBR
+    if (typeof cbrRate === 'number' && !isNaN(cbrRate) && cbrRate >= 1.0 && cbrRate <= 25.0) {
+      MACRO_DATA.clusterA_officialDomestic.bnr.cbrRate = Number(cbrRate.toFixed(2));
+      updatedPointsCount++;
+    }
+
     if (Array.isArray(staplePrices) && staplePrices.length > 0) {
       MACRO_DATA.clusterA_officialDomestic.minagri.staplePrices = staplePrices;
+      updatedPointsCount += staplePrices.length;
     }
+
+    // Automatic zero-shot re-forecast with newly updated macroeconomic data
+    const updatedTimesFm = runTimesFmForecast(MACRO_DATA, adjustments, 12);
+    const updatedEconometrics = calculateEconometricForecast(adjustments);
 
     res.json({
       success: true,
-      message: "Data batch successfully ingested and validated in memory pipeline.",
-      updatedState: MACRO_DATA
+      message: `Successfully ingested and synchronized ${updatedPointsCount} data signals. TimesFM fan chart and econometric indicators recalibrated.`,
+      updatedState: MACRO_DATA,
+      timesfm: updatedTimesFm,
+      econometrics: updatedEconometrics,
+      validation: {
+        recordsProcessed: updatedPointsCount,
+        warnings: warnings.length > 0 ? warnings : undefined
+      }
+    });
+  } catch (err: any) {
+    console.error("Pipeline ingestion error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/pipeline/ingest-csv - Bulk CSV Ingestion endpoint
+app.post('/api/pipeline/ingest-csv', (req: Request, res: Response) => {
+  try {
+    const { csvText, adjustments } = req.body || {};
+    if (!csvText || typeof csvText !== 'string') {
+      return res.status(400).json({ success: false, error: "Missing or invalid csvText body" });
+    }
+
+    const lines = csvText.trim().split(/\r?\n/).filter(line => line.trim().length > 0);
+    if (lines.length < 2) {
+      return res.status(400).json({ success: false, error: "CSV must contain at least a header row and one data row" });
+    }
+
+    const header = lines[0].toLowerCase().split(/[,;\t]/).map(h => h.trim().replace(/^["']|["']$/g, ''));
+    const monthCol = header.findIndex(h => h.includes('month') || h.includes('date') || h.includes('period'));
+    const headlineCol = header.findIndex(h => h.includes('headline') || h.includes('cpi'));
+    const urbanCol = header.findIndex(h => h.includes('urban'));
+    const ruralCol = header.findIndex(h => h.includes('rural'));
+    const usdCol = header.findIndex(h => h.includes('usd') || h.includes('fx') || h.includes('rwf'));
+    const brentCol = header.findIndex(h => h.includes('brent') || h.includes('crude') || h.includes('oil'));
+
+    if (monthCol === -1 || headlineCol === -1) {
+      return res.status(400).json({
+        success: false,
+        error: `Could not identify required columns in header: [${header.join(', ')}]. Expected at least 'month' and 'headline' columns.`
+      });
+    }
+
+    let parsedCount = 0;
+    const warnings: string[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(/[,;\t]/).map(p => p.trim().replace(/^["']|["']$/g, ''));
+      const rawMonth = parts[monthCol];
+      const rawHeadline = parseFloat(parts[headlineCol]);
+
+      if (!rawMonth || isNaN(rawHeadline)) {
+        warnings.push(`Row ${i + 1} skipped due to invalid month or headline CPI value.`);
+        continue;
+      }
+
+      const rawUrban = urbanCol !== -1 && !isNaN(parseFloat(parts[urbanCol]))
+        ? parseFloat(parts[urbanCol])
+        : rawHeadline * 0.95;
+      const rawRural = ruralCol !== -1 && !isNaN(parseFloat(parts[ruralCol]))
+        ? parseFloat(parts[ruralCol])
+        : rawHeadline * 1.05;
+
+      const history = MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory;
+      const existingIdx = history.findIndex(p => p.month.toLowerCase() === rawMonth.toLowerCase());
+      const newPoint = {
+        month: rawMonth,
+        headline: Number(rawHeadline.toFixed(2)),
+        urban: Number(rawUrban.toFixed(2)),
+        rural: Number(rawRural.toFixed(2))
+      };
+
+      if (existingIdx !== -1) {
+        history[existingIdx] = newPoint;
+      } else {
+        history.push(newPoint);
+      }
+
+      if (usdCol !== -1 && !isNaN(parseFloat(parts[usdCol]))) {
+        MACRO_DATA.clusterA_officialDomestic.bnr.exchangeRates.usdRwf = parseFloat(parts[usdCol]);
+      }
+      if (brentCol !== -1 && !isNaN(parseFloat(parts[brentCol]))) {
+        MACRO_DATA.clusterB_regionalTradeAndFuel.fuelAndLogistics.brentCrudeUSD = parseFloat(parts[brentCol]);
+      }
+
+      parsedCount++;
+    }
+
+    // Set latest values
+    const lastHistory = MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory[MACRO_DATA.clusterA_officialDomestic.nisr.cpiHistory.length - 1];
+    if (lastHistory) {
+      MACRO_DATA.metadata.lastUpdated = lastHistory.month;
+      MACRO_DATA.clusterA_officialDomestic.nisr.headlineCPI = lastHistory.headline;
+      MACRO_DATA.clusterA_officialDomestic.nisr.urbanCPI = lastHistory.urban;
+      MACRO_DATA.clusterA_officialDomestic.nisr.ruralCPI = lastHistory.rural;
+    }
+
+    const updatedTimesFm = runTimesFmForecast(MACRO_DATA, adjustments, 12);
+    const updatedEconometrics = calculateEconometricForecast(adjustments);
+
+    res.json({
+      success: true,
+      message: `Parsed and ingested ${parsedCount} historical observations from CSV. TimesFM model and surveillance engine auto-calibrated.`,
+      recordsParsed: parsedCount,
+      updatedState: MACRO_DATA,
+      timesfm: updatedTimesFm,
+      econometrics: updatedEconometrics,
+      warnings: warnings.length > 0 ? warnings : undefined
+    });
+  } catch (err: any) {
+    console.error("CSV Ingestion error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/pipeline/reset - Reset to pristine baseline
+app.post('/api/pipeline/reset', (req: Request, res: Response) => {
+  try {
+    const clone = JSON.parse(JSON.stringify(BASELINE_MACRO_DATA_SNAPSHOT));
+    Object.assign(MACRO_DATA, clone);
+    const timesfm = runTimesFmForecast(MACRO_DATA, undefined, 12);
+    const econometrics = calculateEconometricForecast(undefined);
+    res.json({
+      success: true,
+      message: "Macroeconomic surveillance dataset successfully reset to official October 2026 baseline.",
+      updatedState: MACRO_DATA,
+      timesfm,
+      econometrics
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

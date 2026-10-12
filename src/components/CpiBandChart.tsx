@@ -57,8 +57,10 @@ export const CpiBandChart: React.FC<Props> = ({
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
 
-  const minVal = 0;
-  const maxVal = 10; // Rwanda CPI range around 0 to 10%
+  // Dynamically calculate scale limits to accommodate shocks or historical peaks without clipping
+  const allValues = fullData.flatMap(d => [d.headline, d.urban, d.rural, bnrBand.upper, bnrBand.lower]);
+  const minVal = Math.floor(Math.min(0, ...allValues));
+  const maxVal = Math.ceil(Math.max(10, ...allValues) + 0.5);
 
   const getY = (val: number) => {
     const clamped = Math.max(minVal, Math.min(maxVal, val));
