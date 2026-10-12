@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Python forecaster
+forecaster/.venv/
+forecaster/data/
+__pycache__/
