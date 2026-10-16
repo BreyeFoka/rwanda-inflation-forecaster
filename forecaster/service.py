@@ -109,7 +109,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Rwanda Economic God's Eye API", lifespan=lifespan)
+app = FastAPI(title="Rwanda Inflation Forecaster API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["GET", "POST"], allow_headers=["*"])
 
 
@@ -152,7 +152,7 @@ def _snapshot(frame: pd.DataFrame, meta: dict, sid: str) -> dict:
 
 @app.get("/")
 def root() -> dict:
-    return {"service": "Rwanda Economic God's Eye API", "docs": "/docs", "health": "/health"}
+    return {"service": "Rwanda Inflation Forecaster API", "docs": "/docs", "health": "/health"}
 
 
 @app.get("/health")

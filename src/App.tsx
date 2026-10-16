@@ -25,7 +25,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-wrap items-center justify-between gap-x-8">
           <NavLink to="/" className="flex items-center gap-2.5 py-3">
             <span className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-extrabold text-slate-950 text-xs">RW</span>
-            <span className="text-sm font-bold tracking-tight text-white">Rwanda Economic God's Eye</span>
+            <span className="text-sm font-bold tracking-tight text-white">Rwanda Inflation Forecaster</span>
           </NavLink>
           <nav aria-label="Main" className="flex flex-wrap gap-x-1 -mb-px text-sm">
             {PAGES.map(page => (
@@ -53,7 +53,10 @@ export default function App() {
 
       <footer className="border-t border-slate-900 py-5 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-wrap justify-between gap-2">
-          <span>Data: IMF, World Bank, WFP, Open-Meteo. Forecasts: Google TimesFM 3.0.</span>
+          <span>
+            Data: IMF, World Bank, WFP, Open-Meteo. Forecasts: Google TimesFM 3.0.{' '}
+            <NavLink to="/data" className="underline hover:text-slate-300">Sources and licences</NavLink>
+          </span>
           <span>Forecasts are statistical projections, not official figures.</span>
         </div>
       </footer>

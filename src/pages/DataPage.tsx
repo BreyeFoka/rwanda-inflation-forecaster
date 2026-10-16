@@ -51,6 +51,30 @@ export const DataPage: React.FC = () => {
         </ul>
       </Card>
 
+      <Card title="Sources and licences">
+        <ul className="text-sm text-slate-300 space-y-2 list-disc pl-5 max-w-3xl leading-relaxed">
+          <li>
+            <a className="text-white underline" href="https://data.imf.org" target="_blank" rel="noreferrer">International Monetary Fund</a>: consumer prices (compiled from the National Institute of
+            Statistics of Rwanda), exchange rates, interest rates and world commodity prices. Used under the IMF's terms of use for its data.
+          </li>
+          <li>
+            <a className="text-white underline" href="https://datacatalog.worldbank.org/search/dataset/0037798" target="_blank" rel="noreferrer">World Bank Global Economic Monitor</a>: merchandise exports. Licensed CC BY 4.0.
+          </li>
+          <li>
+            <a className="text-white underline" href="https://data.humdata.org/dataset/wfp-food-prices-for-rwanda" target="_blank" rel="noreferrer">World Food Programme, via the Humanitarian Data Exchange</a>: retail food prices across Rwandan markets. Licensed CC BY-IGO.
+          </li>
+          <li>
+            <a className="text-white underline" href="https://open-meteo.com" target="_blank" rel="noreferrer">Open-Meteo</a> historical weather archive: provincial rainfall. Licensed CC BY 4.0. Built on ERA5 reanalysis
+            from the Copernicus Climate Change Service; contains modified Copernicus Climate Change Service information.
+          </li>
+          <li>
+            Forecasts: <a className="text-white underline" href="https://github.com/google-research/timesfm" target="_blank" rel="noreferrer">TimesFM</a> by Google Research (Apache 2.0), compared against a seasonal ARIMA model and a no-change baseline.
+          </li>
+          <li>The AI analyst's text is written by Google Gemini from the figures on this site. It can be wrong; check it against the charts.</li>
+          <li>This site is an independent project. It is not affiliated with or endorsed by the National Bank of Rwanda, NISR or any data provider.</li>
+        </ul>
+      </Card>
+
       <DataState state={catalog} label="the series list">
         {entries => (
           <>
