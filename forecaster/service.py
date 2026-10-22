@@ -1,4 +1,4 @@
-"""HTTP API over the real-data store, the TimesFM forecaster and the Gemini analyst.
+"""HTTP API over the real-data store, the inflation forecaster and the Gemini analyst.
 
 Run:  uvicorn service:app --port 8001
 """
@@ -43,7 +43,7 @@ HEADLINE_SERIES = [
 ]
 
 ANALYST_PROMPT = """You are a macroeconomist writing about Rwanda's economy for a general professional reader.
-You are given real published data, a TimesFM model forecast of national CPI inflation with quantiles, and that model's backtest errors.
+You are given real published data, a seasonal ARIMA forecast of national CPI inflation with quantiles (ranges calibrated on its past errors), and its backtest errors.
 Rules:
 - Use only the numbers in the data provided. Never invent a figure, date, policy decision or event.
 - Always state the period a figure refers to. Flag series whose latest period is old.
@@ -236,7 +236,9 @@ def catalog() -> list[dict]:
 @app.get("/forecast")
 def forecast(horizon: int = model.MAX_HORIZON) -> dict:
     _require_data()
-    key = ("inflation", horizon, str(model.load_frame()[model.TARGET].dropna().index[-1]))
+    # Keyed on the backtest too: the first forecast after a new CPI month uses model ranges until it lands.
+    calibrated = model.get_backtest(compute=False) is not None
+    key = ("inflation", horizon, str(model.load_frame()[model.TARGET].dropna().index[-1]), calibrated)
     if key not in _forecast_cache:
         _forecast_cache[key] = model.forecast_inflation(horizon)
     return _forecast_cache[key]

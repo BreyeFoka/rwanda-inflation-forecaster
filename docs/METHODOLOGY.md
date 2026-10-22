@@ -30,7 +30,7 @@ The models forecast the index level, not the inflation rate. Inflation for a fut
 | Method | How it works |
 | --- | --- |
 | No change | Next year's inflation equals today's. The floor every model has to beat. |
-| Seasonal ARIMA | SARIMA(1,1,1)(0,1,1)₁₂ fitted to the log of the index over the last 120 months, refitted at each forecast date. |
+| Seasonal ARIMA | SARIMA(1,1,1)(0,1,1)₁₂ fitted to the log of the index over its full history (from 2004), refitted at each forecast date. **This is the forecast the site serves.** |
 | TimesFM 3.0 | Google's pretrained time-series model, used zero-shot on the index history. It returns nine quantiles (10th to 90th percentile). |
 | TimesFM 3.0 with driver data | Same model, also given past values of USD/RWF, Brent, world maize, local beans and Irish potato prices, and Eastern Province rainfall anomaly. Drivers that publish late are carried forward to the forecast date. |
 | Average | The mean of the ARIMA path and the TimesFM median. |
@@ -42,13 +42,25 @@ The test is a **rolling-origin backtest**. For each of the last 72 months, every
 Two scores are reported:
 
 - **Average miss (MAE)**, in percentage points of year-on-year inflation.
-- **80% range coverage** for the TimesFM variants: the share of outcomes that fell between the 10th and 90th percentiles. A well-calibrated range covers about 80%.
+- **80% range coverage**: the share of outcomes that fell between the 10th and 90th percentiles. A well-calibrated range covers about 80%. For seasonal ARIMA this is the calibrated range described in section 5, built at each forecast date from errors already known by then.
 
 The backtest is cached and recomputed when a new CPI month arrives. The current results are served at `GET /backtest` and shown on the Inflation page.
 
 ## 5. What the forecast on the site uses
 
-The site shows the TimesFM variant with the lower backtest error, with its 80% range. Seasonal ARIMA currently has lower error than both TimesFM variants (see the README), so a planned change is to serve the backtest winner or the average instead.
+The site serves **seasonal ARIMA on the full index history**, with a **calibrated range**.
+
+**Choosing the method without peeking.** Candidates were compared on forecasts made from 2009-01 to 2020-07, before the 72-month window the site publishes. Full-history SARIMA, SARIMA on the last 120 months, damped exponential smoothing, AR models of monthly inflation with a constant, direct regressions of future on current inflation, and averages of these were all tried. Damped exponential smoothing averaged with SARIMA scored best on that window by a narrow margin (2.70 pp against 2.78 pp across horizons); full-history SARIMA was chosen as the simpler of two near-equal methods. On the later, unseen 2020–2026 window it had the lowest error of every candidate.
+
+**The range.** The model's own normal-theory ranges, and TimesFM's quantiles, were too narrow because Rwanda's inflation has fat tails and shifting volatility. The served range is built in three steps:
+
+1. Every month since 2009-01, the model forecasts 1 to 12 months ahead. Each miss is measured in log index terms.
+2. Each miss is divided by the price volatility at the time the forecast was made: the standard deviation of seasonally differenced monthly log changes over the previous 24 months.
+3. For today's forecast, the 10th to 90th percentiles of those scaled misses, at each horizon, are multiplied by today's volatility and placed around the forecast.
+
+The range therefore widens when prices have been volatile, as now, and narrows when they have been calm. The 24-month window was also chosen on the 2009–2020 forecasts. Until the backtest has run after a new CPI month, the forecast falls back to the model's own ranges and says so (`interval_method: "model"`).
+
+TimesFM 3.0 stays in the backtest as a comparison only. Its weights are released under Google's TimesFM Non-Commercial License, which excludes production use.
 
 ## 6. AI analyst
 
@@ -58,5 +70,5 @@ The site shows the TimesFM variant with the lower backtest error, with its 80% r
 
 - The CPI is national. The central bank's target refers to urban inflation, which this source doesn't include.
 - Rainfall comes from a single point in each province.
-- The 80% range is too narrow at longer horizons, so treat the 6- and 12-month ranges as optimistic.
+- Twelve months ahead, the calibrated range still holds the outcome less often than 80% (see the README), and the average miss is several points of inflation. The 1- to 3-month forecasts are the reliable part.
 - Forecasts are statistical projections, not official figures.

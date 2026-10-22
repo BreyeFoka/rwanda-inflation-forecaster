@@ -40,8 +40,8 @@ const BacktestTable: React.FC<{ backtest: Backtest; shown: string }> = ({ backte
       </div>
       <p className="text-xs text-slate-400 mt-3 leading-relaxed max-w-3xl">
         Average miss in percentage points of inflation. Each method forecast every month from {formatPeriod(backtest.first_origin)} to {formatPeriod(backtest.last_origin)} using
-        only the data available at that time. The forecast range held the actual outcome {coverage?.['1']}% of the time one month ahead and {coverage?.['12']}% twelve months
-        ahead; 80% would be ideal, so the range is too narrow at long horizons. Lowest average miss: {METHOD_LABELS[backtest.best_overall] || backtest.best_overall}.
+        only the data available at that time. The forecast range shown on this site held the actual outcome {coverage?.['1']}% of the time one month ahead, {coverage?.['6']}% six
+        months ahead and {coverage?.['12']}% twelve months ahead, against a target of 80%. Lowest average miss: {METHOD_LABELS[backtest.best_overall] || backtest.best_overall}.
       </p>
     </>
   );
@@ -62,7 +62,7 @@ export const Inflation: React.FC = () => {
       <DataState state={forecast} label="the forecast">
         {f => (
           <>
-            <Card title="History and forecast" note={`% change on a year earlier. Model: ${f.model}. Data to ${formatPeriod(f.last_observed)}.`}>
+            <Card title="History and forecast" note={`% change on a year earlier. Model: ${f.model}. Data to ${formatPeriod(f.last_observed)}.${f.interval_method === 'model' ? ' The range is provisional until the accuracy test finishes.' : ''}`}>
               <div className="flex justify-end -mt-10 mb-3">
                 <Segmented label="History shown" value={years} onChange={setYears} options={[{ value: 3, label: '3 years' }, { value: 5, label: '5 years' }, { value: 7, label: '7 years' }]} />
               </div>

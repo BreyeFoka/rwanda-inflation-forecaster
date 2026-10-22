@@ -2,7 +2,7 @@
 
 **Live:** [dashboard.breyefoka.dev](https://dashboard.breyefoka.dev) · **API:** [dashboard-api.breyefoka.dev](https://dashboard-api.breyefoka.dev/docs)
 
-A public dashboard of Rwanda's economy, built on published data, with a 12-month inflation forecast from Google's TimesFM time-series model. Every forecast method is tested against what actually happened, and the site shows those results, including where the model falls short.
+A public dashboard of Rwanda's economy, built on published data, with a 12-month inflation forecast. Every forecast method is tested against what actually happened; the site serves the one that won, with a range calibrated on its own past misses, and shows where it still falls short.
 
 ## What it shows
 
@@ -35,23 +35,33 @@ Rainfall contains modified Copernicus Climate Change Service information. This p
 
 The model forecasts the **CPI index level** twelve months ahead, and inflation is worked out from the forecast index. That way, past price jumps drop out of year-on-year inflation when they will in the real data.
 
-Four methods are compared in a rolling test. At each of the last 72 months, each method forecasts using only the data available then, and its error is measured against the inflation that followed.
+The site serves **seasonal ARIMA fitted to the full index history (2004 on)**. The method and its range settings were chosen on forecasts made from 2009 to mid-2020, so the test below, on the 72 months after that, is out of sample.
+
+At each of the last 72 months, each method forecasts using only the data available then, and its error is measured against the inflation that followed.
 
 | Method | Average miss, 1 month ahead | 3 months | 6 months | 12 months |
 | --- | --- | --- | --- | --- |
-| No change (inflation stays where it is) | 1.83 pp | 4.44 pp | 8.00 pp | 12.79 pp |
-| Seasonal ARIMA | **1.18 pp** | **2.95 pp** | **5.02 pp** | **8.36 pp** |
-| TimesFM 3.0 | 1.26 pp | 3.35 pp | 5.57 pp | 10.02 pp |
-| TimesFM 3.0 with driver data | 1.28 pp | 3.64 pp | 6.43 pp | 11.55 pp |
-| Average of TimesFM and ARIMA | 1.19 pp | 3.09 pp | 5.08 pp | 8.62 pp |
+| No change (inflation stays where it is) | 1.77 pp | 4.43 pp | 7.95 pp | 12.77 pp |
+| **Seasonal ARIMA (served)** | **1.07 pp** | **2.81 pp** | **4.61 pp** | **7.88 pp** |
+| TimesFM 3.0 | 1.23 pp | 3.28 pp | 5.39 pp | 9.80 pp |
+| TimesFM 3.0 with driver data | 1.24 pp | 3.56 pp | 6.24 pp | 11.30 pp |
+| Average of TimesFM and ARIMA | 1.12 pp | 2.99 pp | 4.81 pp | 8.24 pp |
 
-*pp = percentage points of year-on-year inflation. Results as of September 2026 data; the live numbers are on the Inflation page and at `/backtest`.*
+How often the 80% range held the actual outcome (80% is the target):
+
+| Range | 1 month | 3 months | 6 months | 12 months |
+| --- | --- | --- | --- | --- |
+| **Seasonal ARIMA, calibrated (served)** | **85%** | **83%** | **78%** | **74%** |
+| TimesFM 3.0 quantiles | 83% | 71% | 63% | 59% |
+
+*pp = percentage points of year-on-year inflation. Results as of August 2026 data; the live numbers are on the Inflation page and at `/backtest`.*
 
 What the test shows:
 
-- **Seasonal ARIMA beats TimesFM at every horizon.** A zero-shot foundation model doesn't automatically beat a classical model fitted to this one series.
+- **The served forecast misses by about 40% less than "no change"** at every horizon, and by 13–20% less than TimesFM 3.0.
+- **The range is calibrated.** It is built from the model's own past misses, scaled to how volatile prices have been over the last two years, so it widens in turbulent periods like now. It holds the outcome close to 80% of the time out to six months.
 - **Adding driver data made TimesFM worse.** Exchange rate, oil, maize, food prices and rainfall, given as past-only inputs, didn't help.
-- **The 80% range is too narrow** beyond a few months. It held the outcome 82% of the time one month ahead but 59% of the time twelve months ahead.
+- **Twelve months ahead is still hard.** No method tested gets the average miss below about 8 pp, largely because of the 2022–23 price shock, which past prices alone gave little warning of. Read the 1- to 3-month forecasts as the reliable part.
 
 See [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for the details.
 
@@ -59,13 +69,13 @@ See [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for the details.
 
 ```
 public APIs ──> forecaster/ingest.py ──> SQLite store ──> forecaster/service.py (FastAPI)
-                                                              │  TimesFM 3.0, SARIMA, backtest
+                                                              │  SARIMA + calibrated ranges, backtest vs TimesFM
                                                               │  Gemini analyst
                                                               ▼
                                       React + Vite dashboard (static, served by Caddy)
 ```
 
-- `forecaster/` is a Python service: data ingest, models, backtest and the HTTP API.
+- `forecaster/` is a Python service: data ingest, models, backtest and the HTTP API. The backtest takes several minutes on CPU and reruns when a new CPI month arrives; until then the forecast uses the model's own ranges.
 - `src/` is the React dashboard (Vite, Tailwind, Recharts), built to static files.
 - Each part has its own Dockerfile. The service keeps its data and the ~1.3 GB model on a volume at `/data`.
 
@@ -108,11 +118,10 @@ Interactive docs: [`/docs`](https://dashboard-api.breyefoka.dev/docs).
 
 ## Known limitations
 
-- **The site serves the TimesFM forecast,** even though seasonal ARIMA has the lowest error in the test. The next step is to serve whichever method wins the backtest, or the average.
 - **National CPI, not urban.** The National Bank of Rwanda targets urban inflation, which this data source doesn't carry, so the 2–8% band on the charts is only a reference.
 - **Single-location rainfall.** Each province's rainfall comes from one representative point, not a provincial average.
 - **Publication lags.** Some sources publish months late. Stale series are marked on the site.
 
 ## Credits
 
-Forecasts use [TimesFM](https://github.com/google-research/timesfm) by Google Research (Apache 2.0). The analyst uses Google Gemini; its text can be wrong, so check it against the charts.
+The served forecast uses seasonal ARIMA from [statsmodels](https://www.statsmodels.org) (BSD). [TimesFM 3.0](https://huggingface.co/google/timesfm-3.0-pytorch) by Google Research is used for the backtest comparison and the food price projections; its weights are under Google's TimesFM Non-Commercial License. The analyst uses Google Gemini; its text can be wrong, so check it against the charts.

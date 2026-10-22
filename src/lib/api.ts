@@ -27,6 +27,8 @@ export interface Forecast {
   target: string;
   model: string;
   variant: string;
+  // 'model' until the accuracy test has run and the range can be calibrated on past misses
+  interval_method: 'calibrated' | 'model';
   covariates: string[];
   last_observed: string;
   history: { period: string; yoy: number }[];

@@ -45,8 +45,8 @@ export const DataPage: React.FC = () => {
       <Card title="How to read this site">
         <ul className="text-sm text-slate-300 space-y-2 list-disc pl-5 max-w-3xl leading-relaxed">
           <li>Inflation here is the national consumer price index for all of Rwanda. The National Bank of Rwanda's 2–8% band is set for urban inflation, which this data source does not carry, so the band on the charts is a rough reference.</li>
-          <li>The forecast comes from Google's TimesFM 3.0 time-series model. It projects the price index twelve months ahead from its own history; inflation is then worked out from the projected index.</li>
-          <li>The shaded range is where the model puts the middle 80% of outcomes. The accuracy test on the Inflation page shows that range has been too narrow beyond a few months.</li>
+          <li>The forecast comes from a seasonal ARIMA model, the method with the lowest error in the accuracy test. It projects the price index twelve months ahead from its own history; inflation is then worked out from the projected index.</li>
+          <li>The shaded range is built from the model's own past misses, widened or narrowed to match how volatile prices have been over the last two years. It aims to hold the outcome 80% of the time; the Inflation page shows how often it has.</li>
           <li>Some sources publish late. Series older than six months are marked.</li>
         </ul>
       </Card>
@@ -68,7 +68,7 @@ export const DataPage: React.FC = () => {
             from the Copernicus Climate Change Service; contains modified Copernicus Climate Change Service information.
           </li>
           <li>
-            Forecasts: <a className="text-white underline" href="https://github.com/google-research/timesfm" target="_blank" rel="noreferrer">TimesFM</a> by Google Research (Apache 2.0), compared against a seasonal ARIMA model and a no-change baseline.
+            Forecasts: seasonal ARIMA via <a className="text-white underline" href="https://www.statsmodels.org" target="_blank" rel="noreferrer">statsmodels</a> (BSD), compared against Google Research's <a className="text-white underline" href="https://github.com/google-research/timesfm" target="_blank" rel="noreferrer">TimesFM 3.0</a> and a no-change baseline.
           </li>
           <li>The AI analyst's text is written by Google Gemini from the figures on this site. It can be wrong; check it against the charts.</li>
           <li>This site is an independent project. It is not affiliated with or endorsed by the National Bank of Rwanda, NISR or any data provider.</li>
