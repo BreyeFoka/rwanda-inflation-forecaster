@@ -7,10 +7,13 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
@@ -82,21 +85,33 @@ def _run_ingest() -> dict[str, str]:
         return status
 
 
+TIMESFM_JOB = Path(__file__).with_name("timesfm_job.py")
+TIMESFM_JOB_TIMEOUT_S = 3 * 3600
+
+
 def _ensure_backtest() -> None:
-    if _backtest_lock.acquire(blocking=False):
-        try:
-            model.get_backtest()
-        finally:
-            _backtest_lock.release()
+    """Runs the TimesFM job in its own process when its saved results are missing or out of date.
+
+    The model never loads in this process, so the API idles at a few hundred MB instead of ~2 GB.
+    """
+    if not _backtest_lock.acquire(blocking=False):
+        return
+    try:
+        if model.get_backtest(compute=False) is not None and not model.series_forecasts_stale():
+            return
+        result = subprocess.run([sys.executable, str(TIMESFM_JOB)], cwd=TIMESFM_JOB.parent, timeout=TIMESFM_JOB_TIMEOUT_S)
+        if result.returncode != 0:
+            print(f"timesfm job exited with code {result.returncode}", flush=True)
+    finally:
+        _backtest_lock.release()
 
 
 def _background_loop() -> None:
-    """Keeps the store fresh: load on first boot, warm the model and backtest, then refresh daily."""
+    """Keeps the store fresh: load on first boot, update the TimesFM results, then refresh daily."""
     while True:
         try:
             if not _has_data() or time.time() - _last_refresh > REFRESH_INTERVAL_S:
                 _run_ingest()
-            model.get_model()
             _ensure_backtest()
         except Exception as exc:  # the loop must survive a bad upstream or a failed download
             print(f"background refresh failed: {type(exc).__name__}: {exc}", flush=True)
@@ -250,11 +265,12 @@ def forecast_one(series_id: str, horizon: int = model.MAX_HORIZON) -> dict:
     frame = model.load_frame()
     if series_id not in frame.columns:
         raise HTTPException(404, f"unknown series {series_id}")
-    horizon = max(1, min(24, horizon))
-    key = (series_id, horizon, str(frame[series_id].dropna().index[-1]))
-    if key not in _forecast_cache:
-        _forecast_cache[key] = model.forecast_series(series_id, horizon)
-    return _forecast_cache[key]
+    horizon = max(1, min(model.SERIES_FORECAST_HORIZON, horizon))
+    cached = model.cached_series_forecast(series_id, horizon)
+    if cached is None:
+        threading.Thread(target=_ensure_backtest, daemon=True).start()
+        return JSONResponse({"status": "computing"}, status_code=202)
+    return cached
 
 
 @app.get("/backtest")

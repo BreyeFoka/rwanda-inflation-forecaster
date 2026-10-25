@@ -22,6 +22,8 @@ import pandas as pd
 from ingest import DATA_DIR, DB_PATH
 
 BACKTEST_CACHE = DATA_DIR / "backtest.json"
+SERIES_FORECAST_CACHE = DATA_DIR / "series_forecasts.json"
+SERIES_FORECAST_HORIZON = 24  # the API serves any shorter horizon by cutting this one
 TARGET = "cpi.all"
 # Drivers offered to the model as past-only covariates.
 COVARIATES = ["fx.usd_rwf", "commodity.brent", "commodity.maize", "food.beans", "food.irish_potatoes", "rain_anom.east"]
@@ -267,6 +269,37 @@ def forecast_series(series_id: str, horizon: int = MAX_HORIZON) -> dict:
             {"period": str(p), "values": [round(float(x), 3) for x in out.quantiles[i]]} for i, p in enumerate(future)
         ],
     }
+
+
+def _series_last_periods() -> dict[str, str]:
+    frame = load_frame()
+    return {sid: str(frame[sid].dropna().index[-1]) for sid in frame.columns if frame[sid].notna().any()}
+
+
+def series_forecasts_stale() -> bool:
+    """True when any series has a newer month than its saved forecast."""
+    if not SERIES_FORECAST_CACHE.exists():
+        return True
+    cached = json.loads(SERIES_FORECAST_CACHE.read_text())
+    return any(cached.get(sid, {}).get("last_observed") != last for sid, last in _series_last_periods().items())
+
+
+def compute_series_forecasts() -> None:
+    """TimesFM forecasts of every stored series, saved for the API to serve without loading the model."""
+    results = {sid: forecast_series(sid, SERIES_FORECAST_HORIZON) for sid in _series_last_periods()}
+    tmp = SERIES_FORECAST_CACHE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(results))
+    tmp.replace(SERIES_FORECAST_CACHE)
+
+
+def cached_series_forecast(series_id: str, horizon: int) -> dict | None:
+    """The saved forecast cut to `horizon` months, or None until the TimesFM job has produced one."""
+    if not SERIES_FORECAST_CACHE.exists():
+        return None
+    entry = json.loads(SERIES_FORECAST_CACHE.read_text()).get(series_id)
+    if entry is None:
+        return None
+    return {**entry, "forecast": entry["forecast"][:horizon]}
 
 
 if __name__ == "__main__":
