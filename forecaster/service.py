@@ -36,7 +36,8 @@ _forecast_cache: dict[tuple, dict] = {}
 _briefing_cache: dict[str, str] = {}
 _refresh_lock = threading.Lock()
 _backtest_lock = threading.Lock()
-_last_refresh = 0.0
+# Railway sleeps the API when idle; the store's age survives restarts, an in-memory timestamp would not.
+_last_refresh = ingest.DB_PATH.stat().st_mtime if ingest.DB_PATH.exists() else 0.0
 _analyst_calls: dict[str, deque] = defaultdict(deque)
 
 # Series shown on the overview page.
