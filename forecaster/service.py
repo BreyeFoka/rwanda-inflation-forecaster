@@ -355,7 +355,9 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
     config = types.GenerateContentConfig(system_instruction=ANALYST_PROMPT)
     response, used_model, error = None, GEMINI_MODEL, None
     # Hold the client for the whole call: newer google-genai closes it once it is unreferenced.
-    with genai.Client(api_key=api_key) as client:
+    # A 40 s cap and no built-in retries, so a stuck model falls over to the fallback instead of hanging.
+    http_options = types.HttpOptions(timeout=40_000, retry_options=types.HttpRetryOptions(attempts=1))
+    with genai.Client(api_key=api_key, http_options=http_options) as client:
         for used_model in dict.fromkeys([GEMINI_MODEL, GEMINI_FALLBACK_MODEL]):
             for attempt in range(2):
                 try:
