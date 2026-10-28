@@ -361,7 +361,11 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
         for used_model in dict.fromkeys([GEMINI_MODEL, GEMINI_FALLBACK_MODEL]):
             for attempt in range(2):
                 try:
-                    response = client.models.generate_content(model=used_model, contents=prompt, config=config)
+                    # Low thinking keeps the main model fast under load; the fallback keeps its defaults.
+                    cfg = config if used_model != GEMINI_MODEL else config.model_copy(
+                        update={"thinking_config": types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)}
+                    )
+                    response = client.models.generate_content(model=used_model, contents=prompt, config=cfg)
                     break
                 except Exception as exc:
                     error = exc
