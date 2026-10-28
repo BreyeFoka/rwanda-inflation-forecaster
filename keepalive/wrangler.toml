@@ -1,0 +1,11 @@
+# Pings the Render API every 14 minutes so the free instance never sleeps (it sleeps after 15 idle).
+# Deploy: cd keepalive && npx wrangler deploy
+name = "rwanda-inflation-keepalive"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+API_URL = "https://rwanda-inflation-api.onrender.com"
+
+[triggers]
+crons = ["*/14 * * * *"]

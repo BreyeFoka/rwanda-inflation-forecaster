@@ -1,0 +1,12 @@
+# Slim API for free hosts: no torch or TimesFM. It serves the data and TimesFM results in
+# snapshot/, made locally with `python ingest.py && python timesfm_job.py` (then copy data/ to snapshot/).
+FROM python:3.13-slim
+
+WORKDIR /app
+COPY requirements-api.txt .
+RUN pip install --no-cache-dir -r requirements-api.txt
+COPY *.py ./
+COPY snapshot/ /data/
+
+ENV DATA_DIR=/data SNAPSHOT_MODE=1 PYTHONUNBUFFERED=1
+CMD ["sh", "-c", "uvicorn service:app --host 0.0.0.0 --port ${PORT:-8001}"]

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: rwanda-inflation-api
+    runtime: docker
+    plan: free
+    rootDir: forecaster
+    dockerfilePath: ./Dockerfile.snapshot
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://rwanda-inflation-forecaster.breye-foka.workers.dev,http://localhost:5173
+      - key: GEMINI_API_KEY
+        sync: false

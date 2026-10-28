@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
+    "preview": "pnpm run build && wrangler dev",
     "lint": "tsc --noEmit",
     "forecaster": "cd forecaster && .venv/bin/python -m uvicorn service:app --port 8001",
-    "ingest": "cd forecaster && .venv/bin/python ingest.py"
+    "ingest": "cd forecaster && .venv/bin/python ingest.py",
+    "deploy": "VITE_API_URL=https://rwanda-inflation-api.onrender.com pnpm run build && wrangler deploy"
   },
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.3.5",
@@ -23,12 +24,14 @@
     "vite": "^8.3.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.65.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "wrangler": "^4.153.0"
   },
   "packageManager": "pnpm@11.23.0"
 }

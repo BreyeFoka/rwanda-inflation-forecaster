@@ -31,6 +31,8 @@ ALLOWED_ORIGINS = os.environ.get(
 REFRESH_INTERVAL_S = 24 * 3600
 REFRESH_COOLDOWN_S = 3600
 ANALYST_LIMIT_PER_HOUR = 20
+# Snapshot mode serves data and TimesFM results computed elsewhere, so the API runs without torch.
+SNAPSHOT_MODE = os.environ.get("SNAPSHOT_MODE") == "1"
 
 _forecast_cache: dict[tuple, dict] = {}
 _briefing_cache: dict[str, str] = {}
@@ -95,7 +97,7 @@ def _ensure_backtest() -> None:
 
     The model never loads in this process, so the API idles at a few hundred MB instead of ~2 GB.
     """
-    if not _backtest_lock.acquire(blocking=False):
+    if SNAPSHOT_MODE or not _backtest_lock.acquire(blocking=False):
         return
     try:
         if model.get_backtest(compute=False) is not None and not model.series_forecasts_stale():
@@ -121,7 +123,8 @@ def _background_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    threading.Thread(target=_background_loop, daemon=True).start()
+    if not SNAPSHOT_MODE:
+        threading.Thread(target=_background_loop, daemon=True).start()
     yield
 
 
@@ -288,6 +291,8 @@ def backtest():
 @app.post("/refresh")
 def refresh() -> dict:
     """Re-pulls every source; the backtest recomputes itself when a new CPI month lands."""
+    if SNAPSHOT_MODE:
+        raise HTTPException(403, "This deployment serves a fixed data snapshot.")
     wait = REFRESH_COOLDOWN_S - (time.time() - _last_refresh)
     if wait > 0:
         raise HTTPException(429, f"Data was refreshed recently. Try again in {int(wait // 60) + 1} minutes.")
