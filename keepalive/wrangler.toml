@@ -1,5 +1,5 @@
 # Pings the Render API every 14 minutes so the free instance never sleeps (it sleeps after 15 idle).
-# Deploy: cd keepalive && npx wrangler deploy
+# Deploy: cd keepalive && npx wrangler deploy --config wrangler.toml  (without --config, wrangler picks up the frontend config)
 name = "rwanda-inflation-keepalive"
 main = "worker.js"
 compatibility_date = "2026-09-01"
