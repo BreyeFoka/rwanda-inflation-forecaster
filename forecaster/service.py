@@ -25,6 +25,8 @@ import ingest
 import model
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+# Tried when the main model is overloaded (503) or rate limited (429).
+GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
 ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS", "https://dashboard.breyefoka.dev,http://localhost:3000,http://localhost:5173"
 ).split(",")
@@ -350,18 +352,29 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
     from google.genai import types
 
     prompt = (f"Question: {question}\n\n" if question else "Write the general briefing.\n\n") + f"DATA:\n{json.dumps(_analyst_context())}"
-    try:
-        # Hold the client for the whole call: newer google-genai closes it once it is unreferenced.
-        with genai.Client(api_key=api_key) as client:
-            response = client.models.generate_content(
-                model=GEMINI_MODEL, contents=prompt, config=types.GenerateContentConfig(system_instruction=ANALYST_PROMPT)
-            )
-    except Exception as exc:
-        raise HTTPException(502, f"Gemini request failed: {str(exc)[:300]}")
+    config = types.GenerateContentConfig(system_instruction=ANALYST_PROMPT)
+    response, used_model, error = None, GEMINI_MODEL, None
+    # Hold the client for the whole call: newer google-genai closes it once it is unreferenced.
+    with genai.Client(api_key=api_key) as client:
+        for used_model in dict.fromkeys([GEMINI_MODEL, GEMINI_FALLBACK_MODEL]):
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(model=used_model, contents=prompt, config=config)
+                    break
+                except Exception as exc:
+                    error = exc
+                    busy = any(code in str(exc) for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
+                    if not busy:
+                        break
+                    time.sleep(2 * (attempt + 1))
+            if response is not None:
+                break
+    if response is None:
+        raise HTTPException(502, f"Gemini request failed: {str(error)[:300]}")
     answer = response.text or ""
     if not question:
         _briefing_cache[data_asof] = answer
-    return {"answer": answer, "model": GEMINI_MODEL, "data_asof": data_asof, "cached": False}
+    return {"answer": answer, "model": used_model, "data_asof": data_asof, "cached": False}
 
 
 if __name__ == "__main__" and sys.argv[1:] == ["--snapshot-forecast"]:
