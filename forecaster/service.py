@@ -351,9 +351,11 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
 
     prompt = (f"Question: {question}\n\n" if question else "Write the general briefing.\n\n") + f"DATA:\n{json.dumps(_analyst_context())}"
     try:
-        response = genai.Client(api_key=api_key).models.generate_content(
-            model=GEMINI_MODEL, contents=prompt, config=types.GenerateContentConfig(system_instruction=ANALYST_PROMPT)
-        )
+        # Hold the client for the whole call: newer google-genai closes it once it is unreferenced.
+        with genai.Client(api_key=api_key) as client:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL, contents=prompt, config=types.GenerateContentConfig(system_instruction=ANALYST_PROMPT)
+            )
     except Exception as exc:
         raise HTTPException(502, f"Gemini request failed: {str(exc)[:300]}")
     answer = response.text or ""
