@@ -33,6 +33,7 @@ REFRESH_COOLDOWN_S = 3600
 ANALYST_LIMIT_PER_HOUR = 20
 # Snapshot mode serves data and TimesFM results computed elsewhere, so the API runs without torch.
 SNAPSHOT_MODE = os.environ.get("SNAPSHOT_MODE") == "1"
+SNAPSHOT_FORECAST = ingest.DATA_DIR / "forecast.json"  # written by: python service.py --snapshot-forecast
 
 _forecast_cache: dict[tuple, dict] = {}
 _briefing_cache: dict[str, str] = {}
@@ -255,6 +256,10 @@ def catalog() -> list[dict]:
 @app.get("/forecast")
 def forecast(horizon: int = model.MAX_HORIZON) -> dict:
     _require_data()
+    if SNAPSHOT_MODE and SNAPSHOT_FORECAST.exists():
+        # Fitting SARIMA takes minutes on a free instance's CPU share, so the snapshot ships the forecast.
+        saved = json.loads(SNAPSHOT_FORECAST.read_text())
+        return {**saved, "forecast": saved["forecast"][: max(1, min(model.MAX_HORIZON, horizon))]}
     # Keyed on the backtest too: the first forecast after a new CPI month uses model ranges until it lands.
     calibrated = model.get_backtest(compute=False) is not None
     key = ("inflation", horizon, str(model.load_frame()[model.TARGET].dropna().index[-1]), calibrated)
@@ -355,3 +360,8 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
     if not question:
         _briefing_cache[data_asof] = answer
     return {"answer": answer, "model": GEMINI_MODEL, "data_asof": data_asof, "cached": False}
+
+
+if __name__ == "__main__" and sys.argv[1:] == ["--snapshot-forecast"]:
+    SNAPSHOT_FORECAST.write_text(json.dumps(model.forecast_inflation(model.MAX_HORIZON)))
+    print(f"wrote {SNAPSHOT_FORECAST}")
