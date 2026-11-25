@@ -111,5 +111,7 @@ Run without `SNAPSHOT_MODE=1`, the API refreshes all sources by itself once a da
 - Rainfall is taken from one point in each province, not an average over the whole province.
 - Some sources are slow to publish (IMF interest rates, WFP food prices). The site marks anything older than six months.
 - The forecasts are our estimates, not official numbers.
+
 ## Use of AI
+
 The main Idea came from daily realisation of people complaining about the price rise. we decided to get the idea develop it and implement it. We used AI coding assistants to help write parts of the code and documentation. We reviewed everything and take responsibility for the work we submitted.
