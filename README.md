@@ -1,127 +1,119 @@
 # Rwanda Inflation Forecaster
 
-**Live:** [dashboard.breyefoka.dev](https://dashboard.breyefoka.dev) · **API:** [dashboard-api.breyefoka.dev](https://dashboard-api.breyefoka.dev/docs)
+Live app: <https://rwanda-inflation-forecaster.breye-foka.workers.dev>
+API docs: <https://rwanda-inflation-api.onrender.com/docs>
 
-A public dashboard of Rwanda's economy, built on published data, with a 12-month inflation forecast. Every forecast method is tested against what actually happened; the site serves the one that won, with a range calibrated on its own past misses, and shows where it still falls short.
+This is our project for the NISR Big Data Hackathon 2026. It's a website that shows Rwanda's inflation rate and predicts where it will go over the next 12 months.
 
-## What it shows
+## Why we built it
 
-| Page | Contents |
-| --- | --- |
-| Overview | Latest inflation, food prices, exchange rate, policy rate and rainfall at a glance |
-| Inflation | National CPI inflation, the 12-month forecast with an 80% range, and the accuracy test |
-| Food prices | Retail prices of staples (beans, maize, cassava flour, Irish potatoes, oil and more) across Rwandan markets |
-| Markets | USD/RWF and EUR/RWF exchange rates, interest rates, world commodity prices, exports |
-| Rainfall | Monthly rainfall and its anomaly against the 1991–2020 normal for each province |
-| AI analyst | OpenRouter selects relevant server-generated facts from the figures on the site; unsupported questions get a no-data answer |
-| Data | Every series with its source, unit, coverage and freshness, plus credits and licences |
+Inflation affects everyone, from families buying food to businesses setting prices to the government planning its budget. But the official figures only tell you what already happened, and they come out a month late. We wanted a simple place where anyone can see the current inflation rate, what is driving it, and a forecast of the next 12 months.
 
-## Data
+We had two goals:
 
-47 monthly series, pulled from public APIs into a SQLite store and refreshed daily.
+1. Help government institutions see price rises coming early, so they can take the right measures in time, for example support for families, food stock decisions, or adjusting policy.
+2. Help ordinary people and businesses know what prices are likely to do, so they can plan their budgets, savings and purchases ahead of the rises.
 
-| Source | Series | Licence |
+This fits Rwanda's national priorities. NST2 (2024–2029), under its economic transformation pillar, aims to keep the economy stable, and stable prices are part of that. Under its social transformation pillar it aims to reduce poverty, and rising food prices push families back towards the poverty line. Vision 2050 aims for high living standards for all Rwandans, which depends on incomes keeping up with prices. Our project gives decision makers an early, tested view of where prices are going so they can act in time.
+
+Around the forecast we added the things that help explain it: food prices, the exchange rate, world oil and grain prices, rainfall, factory prices, and how prices and poverty differ between towns and villages.
+
+## What's in the app
+
+- Overview: current inflation, the forecast, and which kinds of spending went up the most.
+- Inflation: the 12-month forecast with a likely range, how accurate our forecasts were in the past, towns vs villages, and factory prices (they usually move before shop prices).
+- Food prices: market prices for beans, maize, potatoes, rice, cassava flour and other staples.
+- Markets: exchange rate and world prices for oil, grain and fertiliser.
+- Rainfall: rain in each province compared with a normal year, since bad rain means bad harvests and higher food prices.
+- Poverty and prices (extra): poverty by province in 2017 and 2024 from the EICV7 survey, next to current town and village price rises.
+- AI analyst: you can ask a question and it answers using only numbers that are already on the site.
+- Data: where every number comes from and how recent it is.
+
+## Data we used
+
+From NISR:
+
+- Consumer Price Index time series (up to October 2026): whole country, towns, villages, food, local and imported goods, and the index without fresh food and energy.
+- Producer Price Index (up to September 2026).
+- EICV7 poverty profile tables (2024 survey).
+
+Other public sources:
+
+- IMF: older CPI history (2004 to 2009), exchange rates, interest rates, world commodity prices.
+- World Bank: exports.
+- World Food Programme (through HDX): food prices in Rwandan markets.
+- Open-Meteo: monthly rainfall per province since 1991.
+
+The NISR Excel files are in `forecaster/nisr/`. Everything else is downloaded from the sources' APIs.
+
+## How it works
+
+The backend is in Python. `ingest.py` and `nisr.py` read all the sources and put them into one SQLite database (65 monthly series). We joined NISR's CPI onto the IMF's older data so the history goes back to 2004; where both exist they agree to within 0.01. For market food prices we take the median across markets so one strange market doesn't throw off the number.
+
+While reading the EICV7 tables we found two mistakes in NISR's published tables (town and village poverty rates that don't match between two tables, and a wrong sign on the East's change in extreme poverty). The code works out every change from the raw numbers instead of trusting the printed ones, and the site explains what we changed.
+
+For the forecast we use a seasonal ARIMA model from statsmodels. It learns the normal ups and downs in prices, including the yearly harvest pattern, and projects 12 months forward. We picked it by testing. We went back to each of the last 72 months, made a forecast using only the data that existed at that time, and compared it with what actually happened. We did the same with Google's TimesFM AI model and with a simple guess that inflation stays the same. ARIMA had the smallest errors at every time horizon:
+
+| Method | 1 month ahead | 3 months | 6 months | 12 months |
+| --- | --- | --- | --- | --- |
+| No change | 1.90 | 4.53 | 8.09 | 12.91 |
+| Seasonal ARIMA (what we use) | 1.19 | 3.04 | 4.82 | 8.21 |
+| Google TimesFM 3.0 (test up to September 2026) | 1.26 | 3.35 | 5.57 | 10.02 |
+
+The numbers are the average miss in percentage points of inflation, tested on data up to October 2026. The TimesFM row is from our previous full test (data up to September 2026), because the model file wouldn't download for the latest run. The ARIMA forecast's likely range contained the real figure 82% of the time one month ahead and 72% twelve months ahead (the aim is 80%). The 1 to 3 month forecasts are pretty reliable. 12 months ahead is still hard, mostly because of the 2022–23 price jump that nothing in the past data predicted.
+
+The likely range around the forecast comes from how wrong the model was in the past, and it gets wider when prices have been jumping around a lot. It should contain the real number about 8 times out of 10.
+
+For the AI analyst, the server writes a list of fact sentences from the data (current inflation, each spending group, towns and villages, the forecast, the accuracy test, poverty by province), and the AI model (through OpenRouter) is only allowed to pick which ones answer the question. The server checks the picks and returns its own sentences unchanged, so the AI can't make up numbers. If no fact fits, it says the data doesn't answer the question.
+
+We tested it with questions where we already knew the answer from the data (25 November 2026):
+
+| Question | Expected (from the data) | What the analyst answered |
 | --- | --- | --- |
-| [IMF](https://data.imf.org) Consumer Price Index dataset, compiled from NISR | CPI, all items and 12 divisions (Feb 2014 = 100) | IMF terms of use |
-| IMF Exchange Rates and Interest Rates datasets | USD/RWF, EUR/RWF; policy, money market, deposit, lending and T-bill rates | IMF terms of use |
-| IMF Primary Commodity Prices | Brent, maize, rice, coffee, tea, urea | IMF terms of use |
-| [World Bank Global Economic Monitor](https://datacatalog.worldbank.org/search/dataset/0037798) | Merchandise exports | CC BY 4.0 |
-| [WFP food prices](https://data.humdata.org/dataset/wfp-food-prices-for-rwanda), via the Humanitarian Data Exchange | Retail staple prices, median across markets | CC BY-IGO |
-| [Open-Meteo](https://open-meteo.com) historical archive (ERA5 reanalysis) | Rainfall for one location in each province, and its anomaly | CC BY 4.0 |
+| What was inflation in October 2026? | 26.5% | "prices across Rwanda were 26.52% higher than a year before" |
+| How much did prices rise in villages compared with towns? | Villages 31.3%, towns 19.5% | Gave both: villages 31.29%, towns 19.46% |
+| How accurate is the forecast one month ahead? | 1.19 points, range held 82% | "off by 1.19 percentage points on average… inside its likely range 82% of the time" |
+| What will inflation be in October 2027? | 14.4% (7.1% to 21.7%) | "most likely 14.44%… probably between 7.14% and 21.71%" |
+| Which province has the highest poverty rate? | West, 37.4% | Listed all five provinces with their rates (West 37.4% is the highest) but didn't single it out |
+| Who will win the next football World Cup? | Not in our data | "The supplied data does not answer that question." |
 
-Rainfall contains modified Copernicus Climate Change Service information. This project is independent and isn't affiliated with or endorsed by the National Bank of Rwanda, NISR or any data provider.
+The free OpenRouter models sometimes time out; when that happens the site shows an error instead of an answer.
 
-## How the forecast works
+The frontend is React with TypeScript, Vite, Tailwind and Recharts. The site is hosted on Cloudflare Workers and the API on Render, with a small Cloudflare cron job that pings the API so the free server doesn't go to sleep.
 
-The model forecasts the **CPI index level** twelve months ahead, and inflation is worked out from the forecast index. That way, past price jumps drop out of year-on-year inflation when they will in the real data.
+More detail on the forecasting is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
-The site serves **seasonal ARIMA fitted to the full index history (2004 on)**. The method and its range settings were chosen on forecasts made from 2009 to mid-2020, so the test below, on the 72 months after that, is out of sample.
-
-At each of the last 72 months, each method forecasts using only the data available then, and its error is measured against the inflation that followed.
-
-| Method | Average miss, 1 month ahead | 3 months | 6 months | 12 months |
-| --- | --- | --- | --- | --- |
-| No change (inflation stays where it is) | 1.77 pp | 4.43 pp | 7.95 pp | 12.77 pp |
-| **Seasonal ARIMA (served)** | **1.07 pp** | **2.81 pp** | **4.61 pp** | **7.88 pp** |
-| TimesFM 3.0 | 1.23 pp | 3.28 pp | 5.39 pp | 9.80 pp |
-| TimesFM 3.0 with driver data | 1.24 pp | 3.56 pp | 6.24 pp | 11.30 pp |
-| Average of TimesFM and ARIMA | 1.12 pp | 2.99 pp | 4.81 pp | 8.24 pp |
-
-How often the 80% range held the actual outcome (80% is the target):
-
-| Range | 1 month | 3 months | 6 months | 12 months |
-| --- | --- | --- | --- | --- |
-| **Seasonal ARIMA, calibrated (served)** | **85%** | **83%** | **78%** | **74%** |
-| TimesFM 3.0 quantiles | 83% | 71% | 63% | 59% |
-
-*pp = percentage points of year-on-year inflation. Results as of August 2026 data; the live numbers are on the Inflation page and at `/backtest`.*
-
-What the test shows:
-
-- **The served forecast misses by about 40% less than "no change"** at every horizon, and by 13–20% less than TimesFM 3.0.
-- **The range is calibrated.** It is built from the model's own past misses, scaled to how volatile prices have been over the last two years, so it widens in turbulent periods like now. It holds the outcome close to 80% of the time out to six months.
-- **Adding driver data made TimesFM worse.** Exchange rate, oil, maize, food prices and rainfall, given as past-only inputs, didn't help.
-- **Twelve months ahead is still hard.** No method tested gets the average miss below about 8 pp, largely because of the 2022–23 price shock, which past prices alone gave little warning of. Read the 1- to 3-month forecasts as the reliable part.
-
-See [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for the details.
-
-## Architecture
-
-```
-public APIs ──> forecaster/ingest.py ──> SQLite store ──> forecaster/service.py (FastAPI)
-                                                              │  SARIMA + calibrated ranges, backtest vs TimesFM
-                                                              │  OpenRouter analyst
-                                                              ▼
-                                      React + Vite dashboard (static, served by Caddy)
-```
-
-- `forecaster/` is a Python service: data ingest, models, backtest and the HTTP API. The backtest takes several minutes on CPU and reruns when a new CPI month arrives; until then the forecast uses the model's own ranges.
-- `src/` is the React dashboard (Vite, Tailwind, Recharts), built to static files.
-- Each part has its own Dockerfile. The service keeps its data and the ~1.3 GB model on a volume at `/data`.
-
-## Run it locally
+## Running it locally
 
 ```bash
-# Forecaster API
+# backend
 cd forecaster
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python ingest.py                 # pull every series into data/godseye.db
-cd .. && pnpm forecaster                   # API on http://localhost:8001
+.venv/bin/python ingest.py
+SNAPSHOT_MODE=1 .venv/bin/uvicorn service:app --port 8001
 
-# Dashboard
+# frontend (in another terminal, from the project root)
 pnpm install
-pnpm dev                                   # http://localhost:5173, reads VITE_API_URL (default http://localhost:8001)
+pnpm dev
 ```
 
-Service settings (environment variables):
+Then open <http://localhost:5173>. For the AI analyst to work, put `OPENROUTER_API_KEY=...` in `forecaster/.env`.
 
-| Variable | Purpose |
-| --- | --- |
-| `DATA_DIR` | Where the SQLite store, backtest cache and model files live |
-| `ALLOWED_ORIGINS` | Comma-separated origins allowed to call the API |
-| `OPENROUTER_API_KEY` | Enables the AI analyst; without it, `/analyst` returns 503 |
-| `OPENROUTER_MODEL` | OpenRouter model used by the analyst (default: `openrouter/free`) |
+## Updating the data
 
-## API
+The live API runs on Render's free plan, which is too small to download data and fit the models itself, so it serves a fixed snapshot of the data and results from `forecaster/snapshot/`. We update it once a month, after NISR publishes the new CPI (around the 10th):
 
-| Endpoint | Returns |
-| --- | --- |
-| `GET /overview` | Headline figures |
-| `GET /catalog` | Every series with source, unit and coverage |
-| `GET /series?ids=…` | One or more series (comma-separated IDs) |
-| `GET /forecast` | 12-month inflation forecast with quantiles |
-| `GET /backtest` | The accuracy test above |
-| `POST /refresh` | Re-pulls every source (rate-limited) |
-| `POST /analyst` | OpenRouter selects server-generated facts for a briefing or answer (rate-limited per IP) |
+1. Put the new `CPI_time_series_<Month>_<Year>.xls` (and PPI file if there is one) in `forecaster/nisr/`. The code always uses the newest file.
+2. Run `ingest.py` to rebuild the database, then `python timesfm_job.py` and `python service.py --snapshot-forecast` to redo the accuracy test and forecast.
+3. Copy `forecaster/data/` into `forecaster/snapshot/`, commit and push. Render redeploys the API on its own.
 
-Interactive docs: [`/docs`](https://dashboard-api.breyefoka.dev/docs).
+Run without `SNAPSHOT_MODE=1`, the API refreshes all sources by itself once a day, but that needs a bigger server (about 2 GB of memory).
 
-## Known limitations
+## Limitations
 
-- **National CPI, not urban.** The National Bank of Rwanda targets urban inflation, which this data source doesn't carry, so the 2–8% band on the charts is only a reference.
-- **Single-location rainfall.** Each province's rainfall comes from one representative point, not a provincial average.
-- **Publication lags.** Some sources publish months late. Stale series are marked on the site.
-
-## Credits
-
-The served forecast uses seasonal ARIMA from [statsmodels](https://www.statsmodels.org) (BSD). [TimesFM 3.0](https://huggingface.co/google/timesfm-3.0-pytorch) by Google Research is used for the backtest comparison and the food price projections; its weights are under Google's TimesFM Non-Commercial License. The analyst uses OpenRouter to select server-generated facts. Check the underlying data and forecast assumptions against the charts.
+- Our forecast is for the whole country, while the official headline number is for towns only. The site shows both.
+- Rainfall is taken from one point in each province, not an average over the whole province.
+- Some sources are slow to publish (IMF interest rates, WFP food prices). The site marks anything older than six months.
+- The forecasts are our estimates, not official numbers.
+## Use of AI
+The main Idea came from daily realisation of people complaining about the price rise. we decided to get the idea develop it and implement it. We used AI coding assistants to help write parts of the code and documentation. We reviewed everything and take responsibility for the work we submitted.

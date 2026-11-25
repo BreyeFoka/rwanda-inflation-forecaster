@@ -1,5 +1,5 @@
 import React from 'react';
-import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartTooltip } from '../ChartTooltip';
 import { AXIS_TICK, BAND, INK, SERIES, formatPeriod } from '../../lib/theme';
 import { Forecast } from '../../lib/api';
@@ -19,15 +19,15 @@ const FanTooltip: React.FC<{ active?: boolean; payload?: { payload: Row }[] }> =
   const row = active ? payload?.[0]?.payload : undefined;
   if (!row) return null;
   if (row.actual !== undefined) {
-    return <ChartTooltip title={formatPeriod(row.period)} rows={[{ label: 'Actual', value: `${row.actual.toFixed(1)}%`, color: SERIES.actual }]} />;
+    return <ChartTooltip title={formatPeriod(row.period)} rows={[{ label: 'Real inflation', value: `${row.actual.toFixed(1)}%`, color: SERIES.actual }]} />;
   }
   return (
     <ChartTooltip
       title={`${formatPeriod(row.period)} (forecast)`}
       rows={[
-        { label: 'Median', value: `${row.median!.toFixed(1)}%`, color: SERIES.forecast },
-        { label: '10% to 90% range', value: `${row.band0[0].toFixed(1)} to ${row.band0[1].toFixed(1)}` },
-        { label: '30% to 70% range', value: `${row.band2[0].toFixed(1)} to ${row.band2[1].toFixed(1)}` }
+        { label: 'Most likely', value: `${row.median!.toFixed(1)}%`, color: SERIES.forecast },
+        { label: 'Likely range (8 in 10 chance)', value: `${row.band0[0].toFixed(1)} to ${row.band0[1].toFixed(1)}` },
+        { label: 'More likely range (4 in 10 chance)', value: `${row.band2[0].toFixed(1)} to ${row.band2[1].toFixed(1)}` }
       ]}
     />
   );
@@ -47,6 +47,16 @@ export const InflationFanChart: React.FC<{ forecast: Forecast; historyMonths?: n
     rows.push(row);
   });
 
+  // Annotations come from the data: the highest month before the last year, the latest month, and the forecast's end.
+  const earlier = history.slice(0, -12);
+  const peak = earlier.length ? earlier.reduce((a, b) => (b.yoy > a.yoy ? b : a)) : undefined;
+  const end = forecast.forecast[forecast.forecast.length - 1];
+  const notes = [
+    ...(peak ? [{ period: peak.period, y: peak.yoy, text: `Peak ${peak.yoy.toFixed(1)}% (${formatPeriod(peak.period)})`, color: SERIES.actual }] : []),
+    { period: last.period, y: last.yoy, text: `Now ${last.yoy.toFixed(1)}%`, color: SERIES.actual },
+    { period: end.period, y: end.yoy[4], text: `${formatPeriod(end.period)}: ${end.yoy[4].toFixed(1)}%`, color: SERIES.forecast }
+  ];
+
   const extremes = rows.flatMap(r => [r.actual ?? r.band0[0], r.actual ?? r.band0[1]]);
   const yMin = Math.floor(Math.min(0, ...extremes) / 10) * 10;
   const yMax = Math.ceil(Math.max(...extremes) / 10) * 10;
@@ -54,6 +64,7 @@ export const InflationFanChart: React.FC<{ forecast: Forecast; historyMonths?: n
 
   return (
     <div>
+      <div className="text-[11px] text-slate-500 mb-1">% change in prices compared with a year before</div>
       <ResponsiveContainer width="100%" height={340}>
         <ComposedChart data={rows} margin={{ top: 16, right: 12, bottom: 0, left: -8 }}>
           <CartesianGrid stroke={INK.grid} vertical={false} />
@@ -79,14 +90,26 @@ export const InflationFanChart: React.FC<{ forecast: Forecast; historyMonths?: n
           ))}
           <Line dataKey="actual" type="linear" stroke={SERIES.actual} strokeWidth={2} dot={false} isAnimationActive={false} activeDot={{ r: 4, stroke: '#0f172a', strokeWidth: 2 }} />
           <Line dataKey="median" type="linear" stroke={SERIES.forecast} strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} activeDot={{ r: 4, stroke: '#0f172a', strokeWidth: 2 }} />
+          {notes.map(n => (
+            <ReferenceDot
+              key={n.text}
+              x={n.period}
+              y={n.y}
+              r={4}
+              fill={n.color}
+              stroke="#0f172a"
+              strokeWidth={2}
+              label={{ value: n.text, position: 'top', fill: INK.primary, fontSize: 11, offset: 10 }}
+            />
+          ))}
           <Tooltip content={<FanTooltip />} cursor={{ stroke: INK.muted }} />
         </ComposedChart>
       </ResponsiveContainer>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-slate-400 mt-2 pl-11">
-        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5" style={{ background: SERIES.actual }} />Actual</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed" style={{ borderColor: SERIES.forecast }} />TimesFM median</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: SERIES.forecast, opacity: 0.45 }} />10% to 90% range, darker toward the median</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: BAND, opacity: 0.3 }} />BNR 2–8% band (set for urban CPI)</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5" style={{ background: SERIES.actual }} />Real inflation</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed" style={{ borderColor: SERIES.forecast }} />Forecast, most likely</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: SERIES.forecast, opacity: 0.45 }} />Likely range (darker means more likely)</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: BAND, opacity: 0.3 }} />Central bank's 2–8% target (applies to town prices)</span>
       </div>
     </div>
   );

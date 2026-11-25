@@ -18,20 +18,20 @@ export const Prices: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Food prices" description="Retail prices of staple foods from market monitoring, as the median across surveyed markets. Select an item to see its history and a six-month projection." />
+      <PageHeader title="Food prices" description="What everyday foods cost in Rwandan markets, using the typical price across the markets surveyed by the World Food Programme. Click a food to see its price history and where it may go in the next six months." />
       <DataState state={foods} label="food prices">
         {items => {
           const current = items.find(i => i.series_id === selected) ?? items[0];
           return (
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-              <Card title="Staples" note="Latest price and change" className="lg:col-span-2">
+              <Card title="Everyday foods" note="Latest price, and change since a year ago" className="lg:col-span-2">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs text-slate-400 text-left">
                       <th scope="col" className="font-medium pb-2">Item</th>
                       <th scope="col" className="font-medium pb-2 text-right">Price, RWF</th>
-                      <th scope="col" className="font-medium pb-2 w-20"><span className="sr-only">Three-year trend</span></th>
-                      <th scope="col" className="font-medium pb-2 text-right">Year</th>
+                      <th scope="col" className="font-medium pb-2 w-20"><span className="sr-only">Last three years</span></th>
+                      <th scope="col" className="font-medium pb-2 text-right">vs last year</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -56,13 +56,13 @@ export const Prices: React.FC = () => {
                 </table>
               </Card>
 
-              <Card title={shortName(current)} note={`${shortUnit(current)}, five-year history with a six-month TimesFM projection`} className="lg:col-span-3">
+              <Card title={shortName(current)} note={`${shortUnit(current)}, last five years, with a six-month projection from Google's AI forecasting model`} className="lg:col-span-3">
                 <DataState state={history} label="price history">
                   {h => <SeriesChart observations={h[current.series_id].observations} forecast={forecast.data?.series_id === current.series_id ? forecast.data.forecast : undefined} unit={shortUnit(current)} height={320} />}
                 </DataState>
                 <p className="text-xs text-slate-400 mt-3 leading-relaxed">
-                  The dashed line and shaded band are the model's median and 10% to 90% range. Unlike the inflation forecast, projections for individual foods have not been
-                  tested against history here, so treat them as indicative. Prices come from {current.source}.
+                  The dashed line is the most likely price and the shaded area the likely range. Unlike the inflation forecast, these food projections have not been checked
+                  against past prices, so treat them as a rough guide. Prices come from {current.source}.
                 </p>
               </Card>
             </div>

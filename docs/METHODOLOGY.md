@@ -1,74 +1,98 @@
 # Methodology
 
-How the Rwanda Inflation Forecaster gets its data, makes its forecasts and tests them. Everything here matches the code in `forecaster/`.
+This explains how we get the data, how the forecast is made, and how we tested it. The code for all of it is in `forecaster/`.
 
-## 1. Data store
+## 1. Data
 
-`forecaster/ingest.py` pulls each source over its public API and writes monthly observations to a SQLite store (`$DATA_DIR/godseye.db`), along with each series' source, URL, unit and fetch time.
+`forecaster/ingest.py` collects everything into a SQLite database (`$DATA_DIR/godseye.db`). For every series it also saves the source, link, unit and when it was last fetched.
 
-- **Consumer prices:** the IMF CPI dataset for Rwanda (compiled from NISR): all items plus 12 COICOP divisions, index Feb 2014 = 100.
-- **Exchange and interest rates:** IMF ER and MFS_IR datasets.
-- **World commodity prices:** IMF Primary Commodity Prices (Brent, maize, rice, coffee, tea, urea).
-- **Exports:** World Bank Global Economic Monitor.
-- **Food prices:** WFP market prices from the Humanitarian Data Exchange, reduced to a monthly median across markets for each staple (months with fewer than three market prices are skipped).
-- **Rainfall:** Open-Meteo's ERA5 archive for one point per province. Daily rainfall is summed by month and compared with the 1991–2020 monthly normal to give an anomaly in percent.
+NISR data is read from the Excel files in `forecaster/nisr/` by `forecaster/nisr.py`:
 
-If a source fails during a refresh, its previous data is kept and the failure is reported.
+- CPI time series: the all-Rwanda index and its 12 spending groups, the urban and rural indices (all items and food), and the urban analytical indices (local goods, imported goods, fresh products, energy, and the index without fresh products and energy). Base is February 2014 = 100, monthly from February 2009.
+- PPI: all industry, mining, manufacturing, food manufacturing, beverages, electricity, water, local sales and exports. Monthly from December 2010.
+- EICV7 poverty profile: poverty and extreme poverty by province and area for 2024 and 2017, poverty gap, median consumption, Gini, access to electricity, income sources, savings and mobile money, and shocks.
 
-## 2. Target
+The parser looks rows up by their codes and labels, and stops with an error if the layout changes, so a new NISR file can't quietly load the wrong rows.
 
-The target is the **national CPI index, all items**. Inflation is the year-on-year change in that index:
+The other sources come from APIs:
+
+- IMF CPI dataset for Rwanda, used for 2004 to January 2009 (before the NISR file starts). Over the 212 months where both exist, NISR and IMF values differ by at most 0.01 index points, so the join is clean.
+- IMF exchange rates, interest rates and world commodity prices (Brent, maize, rice, coffee, tea, urea).
+- World Bank Global Economic Monitor for exports.
+- WFP market food prices from HDX. For each food and month we take the median across markets, and skip months with fewer than three markets.
+- Open-Meteo ERA5 rainfall at one point per province. Daily rain is added up per month and compared with the 1991–2020 average for that month.
+
+If one source fails during a refresh, the old data for it is kept and the failure is reported.
+
+### Fixes to the EICV7 tables
+
+Two things in NISR's tables don't add up, so we don't copy them as printed:
+
+- Table 5.1 gives urban and rural poverty as 16.7% and 31.6%, but its own change column (−6.2 and −13.7 points from 18.9% and 44.3%) and Table 5.2 both give 12.7% and 30.6%. We use 12.7% and 30.6%.
+- Table 5.1 gives the East's change in extreme poverty as +9, but the levels are 9.7% in 2017 and 4.5% in 2024, which is −5.2.
+
+Every change on the site is calculated from the levels. Table 5.3's consumption figures are in thousands of RWF, which the table doesn't say, so we multiply by 1,000.
+
+## 2. What we forecast
+
+We forecast the all-Rwanda CPI. Inflation is the change in the index compared with the same month a year earlier:
 
 ```
 inflation(t) = 100 × (CPI(t) / CPI(t − 12) − 1)
 ```
 
-The models forecast the index level, not the inflation rate. Inflation for a future month is then the forecast index divided by the actual index twelve months earlier. That keeps base effects right: a past price jump leaves the year-on-year figure exactly twelve months later, as it will in the published data. Forecasts stop at 12 months, because beyond that the denominator would itself be a forecast.
+The model forecasts the index itself, and we work out inflation from it afterwards. That way, when a big price jump from last year drops out of the comparison, the forecast handles it the same way the published figures will. We stop at 12 months, because after that we'd be dividing one forecast by another.
 
-## 3. Methods compared
+## 3. Methods we compared
 
 | Method | How it works |
 | --- | --- |
-| No change | Next year's inflation equals today's. The floor every model has to beat. |
-| Seasonal ARIMA | SARIMA(1,1,1)(0,1,1)₁₂ fitted to the log of the index over its full history (from 2004), refitted at each forecast date. **This is the forecast the site serves.** |
-| TimesFM 3.0 | Google's pretrained time-series model, used zero-shot on the index history. It returns nine quantiles (10th to 90th percentile). |
-| TimesFM 3.0 with driver data | Same model, also given past values of USD/RWF, Brent, world maize, local beans and Irish potato prices, and Eastern Province rainfall anomaly. Drivers that publish late are carried forward to the forecast date. |
-| Average | The mean of the ARIMA path and the TimesFM median. |
+| No change | Next year's inflation is the same as today's. Any real model should beat this. |
+| Seasonal ARIMA | SARIMA(1,1,1)(0,1,1)₁₂ on the log of the index, using the full history from 2004, refitted at every forecast date. This is the one the site uses. |
+| TimesFM 3.0 | Google's pretrained time series model, used as is on the index history. It gives nine quantiles (10th to 90th percentile). |
+| TimesFM 3.0 with extra data | The same model, also given past values of USD/RWF, Brent oil, world maize, local beans and Irish potato prices, and Eastern Province rainfall. Series that publish late are carried forward to the forecast date. |
+| Average | The ARIMA forecast and the TimesFM median averaged together. |
 
-## 4. Accuracy test
+## 4. How we tested them
 
-The test is a **rolling-origin backtest**. For each of the last 72 months, every method forecasts 1, 3, 6 and 12 months ahead using only the observations available at that month. Each forecast is compared with the inflation that was later published.
+For each of the last 72 months, every method makes forecasts 1, 3, 6 and 12 months ahead using only the data that existed in that month. Then we compare each forecast with the inflation that was actually published later.
 
-Two scores are reported:
+We report two things:
 
-- **Average miss (MAE)**, in percentage points of year-on-year inflation.
-- **80% range coverage**: the share of outcomes that fell between the 10th and 90th percentiles. A well-calibrated range covers about 80%. For seasonal ARIMA this is the calibrated range described in section 5, built at each forecast date from errors already known by then.
+- The average miss (mean absolute error), in percentage points of inflation.
+- How often the real number fell inside the 80% range (between the 10th and 90th percentiles). If the range is right, that should happen about 80% of the time. For ARIMA this is the range from section 5, built at each date only from errors that were already known then.
 
-The backtest is cached and recomputed when a new CPI month arrives. The current results are served at `GET /backtest` and shown on the Inflation page.
+The test reruns when a new CPI month comes in. The latest results are at `GET /backtest` and on the Inflation page.
 
-## 5. What the forecast on the site uses
+## 5. The forecast on the site
 
-The site serves **seasonal ARIMA on the full index history**, with a **calibrated range**.
+The site uses seasonal ARIMA on the full history, with a range based on its own past errors.
 
-**Choosing the method without peeking.** Candidates were compared on forecasts made from 2009-01 to 2020-07, before the 72-month window the site publishes. Full-history SARIMA, SARIMA on the last 120 months, damped exponential smoothing, AR models of monthly inflation with a constant, direct regressions of future on current inflation, and averages of these were all tried. Damped exponential smoothing averaged with SARIMA scored best on that window by a narrow margin (2.70 pp against 2.78 pp across horizons); full-history SARIMA was chosen as the simpler of two near-equal methods. On the later, unseen 2020–2026 window it had the lowest error of every candidate.
+How we picked the method without cheating: we compared candidates on forecasts made from January 2009 to July 2020, which is before the 72 months we publish. We tried full-history SARIMA, SARIMA on the last 120 months, damped exponential smoothing, AR models of monthly inflation, direct regressions of future on current inflation, and averages of these. Damped smoothing averaged with SARIMA was very slightly better on that period (2.70 against 2.78 points across horizons). We went with full-history SARIMA because it's simpler and almost as good. On the later 2020–2026 period, which we hadn't looked at, it had the lowest error of all of them.
 
-**The range.** The model's own normal-theory ranges, and TimesFM's quantiles, were too narrow because Rwanda's inflation has fat tails and shifting volatility. The served range is built in three steps:
+The range: the model's own ranges and TimesFM's quantiles were both too narrow, because Rwanda's inflation has occasional big jumps and calm periods that change over time. So we build the range like this:
 
-1. Every month since 2009-01, the model forecasts 1 to 12 months ahead. Each miss is measured in log index terms.
-2. Each miss is divided by the price volatility at the time the forecast was made: the standard deviation of seasonally differenced monthly log changes over the previous 24 months.
-3. For today's forecast, the 10th to 90th percentiles of those scaled misses, at each horizon, are multiplied by today's volatility and placed around the forecast.
+1. From every month since January 2009, the model forecasts 1 to 12 months ahead and we record how far off it was (in log terms).
+2. Each error is divided by how volatile prices were when the forecast was made (standard deviation of the seasonally differenced monthly log changes over the previous 24 months).
+3. For today's forecast, we take the 10th to 90th percentiles of those scaled errors for each horizon, multiply by today's volatility, and put them around the forecast.
 
-The range therefore widens when prices have been volatile, as now, and narrows when they have been calm. The 24-month window was also chosen on the 2009–2020 forecasts. Until the backtest has run after a new CPI month, the forecast falls back to the model's own ranges and says so (`interval_method: "model"`).
+So the range gets wider when prices have been volatile, like now, and narrower when things are calm. The 24-month window was also chosen on the 2009–2020 period. Right after a new CPI month, before the test has rerun, the site uses the model's own ranges and says so (`interval_method: "model"`).
 
-TimesFM 3.0 stays in the backtest as a comparison only. Its weights are released under Google's TimesFM Non-Commercial License, which excludes production use.
+TimesFM stays in the test only as a comparison, and for the food price projections. Its weights are under Google's TimesFM Non-Commercial License.
 
-## 6. AI analyst
+## 6. Town, village and poverty figures
 
-`POST /analyst` sends Gemini the headline figures, the last 24 months of inflation, the forecast and the backtest, with instructions to use only those figures. The general briefing is cached per data month, and requests are limited per IP address per hour. The analyst explains the numbers; it doesn't produce them.
+Next to the forecast, the API (`/overview` and `/poverty`) shows the latest yearly change for the urban, rural, core, urban food, rural food, local, imported and PPI indices. On the poverty page we also show how much urban and rural prices have risen since January 2024, because the EICV7 poverty line (RWF 560,127 per adult equivalent per year) is set in January 2024 prices. Multiplying the line by the rural price rise gives a rough idea of what the same standard of living costs now. That's only an indication; we don't re-estimate poverty.
 
-## 7. Known limits
+## 7. AI analyst
 
-- The CPI is national. The central bank's target refers to urban inflation, which this source doesn't include.
-- Rainfall comes from a single point in each province.
-- Twelve months ahead, the calibrated range still holds the outcome less often than 80% (see the README), and the average miss is several points of inflation. The 1- to 3-month forecasts are the reliable part.
-- Forecasts are statistical projections, not official figures.
+`POST /analyst` builds factual statements from the headline figures, the last 24 months of inflation, the forecast and the backtest. OpenRouter only selects statement IDs. The server rejects unknown IDs and returns its own unchanged statements, or a no-data answer. The general briefing is cached for the exact fact set, and requests are limited per IP address per hour. The analyst selects relevant evidence; it does not create numbers or prose.
+
+The statements now also cover town and village inflation, PPI, and the EICV7 poverty figures.
+
+## 8. Limits
+
+- We forecast the all-Rwanda index. The central bank's 2–8% target is for the urban index, which we show separately but don't forecast.
+- Rainfall is from one point per province.
+- 12 months ahead, the range still contains the real number less than 80% of the time, and the average miss is several points. The 1 to 3 month forecasts are the part to rely on.
+- These are our own estimates, not official figures.
