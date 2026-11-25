@@ -1,9 +1,10 @@
-"""HTTP API over the real-data store, the inflation forecaster and the Gemini analyst.
+"""HTTP API over the real-data store, the inflation forecaster and the AI analyst.
 
 Run:  uvicorn service:app --port 8001
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -16,6 +17,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pandas as pd
+import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,11 +27,12 @@ from pydantic import BaseModel, Field
 import ingest
 import model
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-# Tried when the main model is overloaded (503) or rate limited (429).
-GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-flash-latest")
+load_dotenv(Path(__file__).with_name(".env"))
+
+ANALYST_MODEL = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
+ANALYST_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 ALLOWED_ORIGINS = os.environ.get(
-    "ALLOWED_ORIGINS", "https://dashboard.breyefoka.dev,http://localhost:3000,http://localhost:5173"
+    "ALLOWED_ORIGINS", "https://dashboard.breyefoka.dev,http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173"
 ).split(",")
 REFRESH_INTERVAL_S = 24 * 3600
 REFRESH_COOLDOWN_S = 3600
@@ -51,17 +55,11 @@ HEADLINE_SERIES = [
     "food.beans", "food.maize", "food.irish_potatoes", "food.rice_local", "food.cassava_flour", "food.cooking_oil",
 ]
 
-ANALYST_PROMPT = """You are a macroeconomist writing about Rwanda's economy for a general professional reader.
-You are given real published data, a seasonal ARIMA forecast of national CPI inflation with quantiles (ranges calibrated on its past errors), and its backtest errors.
-Rules:
-- Use only the numbers in the data provided. Never invent a figure, date, policy decision or event.
-- Always state the period a figure refers to. Flag series whose latest period is old.
-- The CPI here is the national (all-Rwanda) index. BNR's 2-8% band targets urban headline CPI, so compare with care.
-- Treat the forecast as a statistical extrapolation: report the median with its 80% interval and say how reliable the backtest shows it to be at that horizon.
-- Explanations of why something moved are hypotheses unless the data shows it; word them that way.
-- If the data cannot answer the question, say so.
-Write plain text without markdown symbols. For a general briefing use these section titles on their own lines:
-Where inflation stands, What is driving it, Outlook, Risks, What to watch next. For a specific question, answer it directly and briefly."""
+ANALYST_PROMPT = """Select only facts that directly answer the user's question.
+Return JSON only, in the form {"ids": ["F1", "F2"]}. Use only IDs in the supplied list.
+Return {"ids": []} when the facts cannot answer the question. Do not write prose,
+calculations, explanations, or facts of your own. For a general briefing, select
+the most useful current inflation, forecast, and reliability facts."""
 
 
 def _has_data() -> bool:
@@ -328,17 +326,71 @@ def _analyst_context() -> dict:
     }
 
 
+def _analyst_facts(context: dict) -> dict[str, str]:
+    """Server-authored sentences are the only text the analyst may return."""
+    facts: dict[str, str] = {}
+
+    def add(sentence: str) -> None:
+        facts[f"F{len(facts) + 1}"] = sentence
+
+    overview_data = context["overview"]
+    inflation = overview_data["inflation"]
+    add(f"In {inflation['period']}, observed national CPI inflation was {inflation['yoy']}% year on year (source: {inflation['source']}).")
+    add(f"In {inflation['period']}, national CPI rose {inflation['mom']}% from the previous month; year-on-year inflation in the previous month was {inflation['yoy_prev_month']}%.")
+    for comp in overview_data["components"]:
+        add(f"In {comp['period']}, {comp['name']} CPI inflation was {comp['yoy']}% year on year; three months earlier it was {comp['yoy_3m_ago']}%.")
+    for indicator in overview_data["indicators"]:
+        add(f"In {indicator['period']}, {indicator['name']} was {indicator['value']} {indicator['unit']} (source: {indicator['source']}).")
+    for rainfall in overview_data["rainfall"]:
+        add(f"In {rainfall['period']}, rainfall at the {rainfall['name']} sample point was {rainfall['rain_mm']} mm, {rainfall['anomaly_pct']}% versus its historical normal. This point is not a province-wide average.")
+    for observed in context["inflation_history_last_24_months"]:
+        add(f"In {observed['period']}, observed national CPI inflation was {observed['yoy']}% year on year.")
+    for projected in context["inflation_forecast"]:
+        add(f"For {projected['period']}, the statistical national CPI inflation forecast is {projected['median']}%, with an 80% interval from {projected['interval80_low']}% to {projected['interval80_high']}%. This is a forecast, not an observation.")
+    backtest = context["backtest"]
+    if isinstance(backtest, dict):
+        served = backtest.get("served", "sarima")
+        for horizon in backtest.get("horizons", []):
+            key = str(horizon)
+            error = backtest.get("mae_pp", {}).get(served, {}).get(key)
+            coverage = backtest.get("interval80_coverage_pct", {}).get(served, {}).get(key)
+            if error is not None:
+                sentence = f"In the historical backtest, the {served} forecast's {horizon}-month mean absolute error was {error} percentage points."
+                if coverage is not None:
+                    sentence += f" Its 80% interval covered {coverage}% of tested outcomes at that horizon."
+                add(sentence)
+    add("These figures show associations and forecasts; they do not establish what caused a price change.")
+    add("The national CPI series and urban headline CPI are different measures and should not be treated as interchangeable.")
+    return facts
+
+
+def _selected_fact_answer(content: str, facts: dict[str, str]) -> str:
+    """Ignore every model-authored word except valid fact identifiers."""
+    try:
+        selection = json.loads(content.strip())
+    except json.JSONDecodeError:
+        return "The supplied data does not answer that question."
+    ids = selection.get("ids") if isinstance(selection, dict) else None
+    if not isinstance(ids, list) or len(ids) > 12 or any(not isinstance(i, str) or i not in facts for i in ids):
+        return "The supplied data does not answer that question."
+    unique_ids = list(dict.fromkeys(ids))
+    return "\n\n".join(facts[i] for i in unique_ids) if unique_ids else "The supplied data does not answer that question."
+
+
 @app.post("/analyst")
 def analyst(body: AnalystRequest, request: Request) -> dict:
-    """Gemini writes a briefing, or answers a question, from the real data and the model output."""
+    """A free OpenRouter model explains the data and forecast."""
     _require_data()
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        raise HTTPException(503, "The AI analyst is not configured: GEMINI_API_KEY is not set on the server.")
+        raise HTTPException(503, "The AI analyst is not configured: OPENROUTER_API_KEY is not set on the server.")
     question = body.question.strip()
-    data_asof = forecast()["last_observed"]
-    if not question and data_asof in _briefing_cache:
-        return {"answer": _briefing_cache[data_asof], "model": GEMINI_MODEL, "data_asof": data_asof, "cached": True}
+    context = _analyst_context()
+    data_asof = context["forecast_model"]["last_observed"]
+    facts = _analyst_facts(context)
+    cache_key = hashlib.sha256((ANALYST_MODEL + json.dumps(facts, sort_keys=True)).encode()).hexdigest()
+    if not question and cache_key in _briefing_cache:
+        return {"answer": _briefing_cache[cache_key], "model": ANALYST_MODEL, "data_asof": data_asof, "cached": True}
 
     caller = request.headers.get("x-forwarded-for", request.client.host if request.client else "").split(",")[0].strip()
     calls = _analyst_calls[caller]
@@ -348,39 +400,28 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
         raise HTTPException(429, "Too many analyst requests from this address. Try again later.")
     calls.append(time.time())
 
-    from google import genai
-    from google.genai import types
-
-    prompt = (f"Question: {question}\n\n" if question else "Write the general briefing.\n\n") + f"DATA:\n{json.dumps(_analyst_context())}"
-    config = types.GenerateContentConfig(system_instruction=ANALYST_PROMPT)
-    response, used_model, error = None, GEMINI_MODEL, None
-    # Hold the client for the whole call: newer google-genai closes it once it is unreferenced.
-    # A 40 s cap and no built-in retries, so a stuck model falls over to the fallback instead of hanging.
-    http_options = types.HttpOptions(timeout=40_000, retry_options=types.HttpRetryOptions(attempts=1))
-    with genai.Client(api_key=api_key, http_options=http_options) as client:
-        for used_model in dict.fromkeys([GEMINI_MODEL, GEMINI_FALLBACK_MODEL]):
-            for attempt in range(2):
-                try:
-                    # Low thinking keeps the main model fast under load; the fallback keeps its defaults.
-                    cfg = config if used_model != GEMINI_MODEL else config.model_copy(
-                        update={"thinking_config": types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)}
-                    )
-                    response = client.models.generate_content(model=used_model, contents=prompt, config=cfg)
-                    break
-                except Exception as exc:
-                    error = exc
-                    busy = any(code in str(exc) for code in ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED"))
-                    if not busy:
-                        break
-                    time.sleep(2 * (attempt + 1))
-            if response is not None:
-                break
-    if response is None:
-        raise HTTPException(502, f"Gemini request failed: {str(error)[:300]}")
-    answer = response.text or ""
-    if not question:
-        _briefing_cache[data_asof] = answer
-    return {"answer": answer, "model": used_model, "data_asof": data_asof, "cached": False}
+    prompt = json.dumps({"question": question or "General briefing", "facts": facts})
+    try:
+        response = requests.post(
+            ANALYST_API_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": ANALYST_MODEL, "messages": [
+                {"role": "system", "content": ANALYST_PROMPT},
+                {"role": "user", "content": prompt},
+            ]},
+            timeout=60,
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("empty response")
+    except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        raise HTTPException(502, f"OpenRouter request failed{f' (HTTP {status})' if status else ''}.") from exc
+    answer = _selected_fact_answer(content, facts)
+    if not question and answer != "The supplied data does not answer that question.":
+        _briefing_cache[cache_key] = answer
+    return {"answer": answer, "model": ANALYST_MODEL, "data_asof": data_asof, "cached": False}
 
 
 if __name__ == "__main__" and sys.argv[1:] == ["--snapshot-forecast"]:

@@ -7,4 +7,4 @@ pandas
 numpy
 requests
 statsmodels
-google-genai
+python-dotenv

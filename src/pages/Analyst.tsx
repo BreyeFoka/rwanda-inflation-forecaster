@@ -39,7 +39,7 @@ export const Analyst: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <PageHeader title="AI analyst" description="Gemini reads the published figures, the inflation forecast and its accuracy test, then writes a briefing or answers your question. It is instructed to use only those numbers." />
+      <PageHeader title="AI analyst" description="The analyst selects relevant statements from verified app data and forecasts. The server returns only those statements, so unsupported questions receive a clear no-data answer." />
 
       <Card title="Ask about the data">
         <form onSubmit={e => { e.preventDefault(); if (question.trim()) ask(question.trim()); }} className="flex flex-col sm:flex-row gap-2">
@@ -68,10 +68,10 @@ export const Analyst: React.FC = () => {
         </div>
       </Card>
 
-      {loading && <div role="status" className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" />Reading the data and writing…</div>}
+      {loading && <div role="status" className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" />Selecting relevant data…</div>}
       {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</div>}
       {result && !loading && (
-        <Card title={asked || 'Briefing'} note={`Written by ${result.model} from data to ${formatPeriod(result.data_asof)}. Check important figures against the other pages.`}>
+        <Card title={asked || 'Briefing'} note={`Facts selected by ${result.model} from data to ${formatPeriod(result.data_asof)}. Check important figures against the other pages.`}>
           <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{result.answer}</div>
         </Card>
       )}

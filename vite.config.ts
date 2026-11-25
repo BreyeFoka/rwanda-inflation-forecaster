@@ -3,11 +3,10 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-import { cloudflare } from "@cloudflare/vite-plugin";
-
-export default defineConfig(() => {
+export default defineConfig(async ({ command }) => {
+  const deploymentPlugins = command === 'build' ? [(await import('@cloudflare/vite-plugin')).cloudflare()] : [];
   return {
-    plugins: [react(), tailwindcss(), cloudflare()],
+    plugins: [react(), tailwindcss(), ...deploymentPlugins],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
