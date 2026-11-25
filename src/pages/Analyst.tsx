@@ -13,7 +13,7 @@ interface Answer {
 const SUGGESTIONS = [
   'Which spending categories are pushing inflation up the most?',
   'How reliable is the twelve-month inflation forecast?',
-  'What do food prices and rainfall suggest for the months ahead?'
+  'Are prices rising faster in villages than in towns?'
 ];
 
 export const Analyst: React.FC = () => {
@@ -39,7 +39,7 @@ export const Analyst: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <PageHeader title="AI analyst" description="The analyst selects relevant statements from verified app data and forecasts. The server returns only those statements, so unsupported questions receive a clear no-data answer." />
+      <PageHeader title="AI analyst" description="Ask a question in plain words. The AI picks the answers from facts already checked on this site, and never makes up numbers. If the site has no data on your question, it says so." />
 
       <Card title="Ask about the data">
         <form onSubmit={e => { e.preventDefault(); if (question.trim()) ask(question.trim()); }} className="flex flex-col sm:flex-row gap-2">
@@ -58,7 +58,7 @@ export const Analyst: React.FC = () => {
         </form>
         <div className="flex flex-wrap gap-2 mt-3">
           <button onClick={() => ask('')} disabled={loading} className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-white text-slate-950 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
-            <Sparkles className="w-3.5 h-3.5" />Write a full briefing
+            <Sparkles className="w-3.5 h-3.5" />Give me a quick summary
           </button>
           {SUGGESTIONS.map(s => (
             <button key={s} onClick={() => { setQuestion(s); ask(s); }} disabled={loading} className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-xs text-slate-300 text-left disabled:opacity-50">
@@ -68,10 +68,10 @@ export const Analyst: React.FC = () => {
         </div>
       </Card>
 
-      {loading && <div role="status" className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" />Selecting relevant data…</div>}
+      {loading && <div role="status" className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" />Finding the relevant facts…</div>}
       {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</div>}
       {result && !loading && (
-        <Card title={asked || 'Briefing'} note={`Facts selected by ${result.model} from data to ${formatPeriod(result.data_asof)}. Check important figures against the other pages.`}>
+        <Card title={asked || 'Briefing'} note={`Facts picked by AI from data up to ${formatPeriod(result.data_asof)}. Double-check important figures on the other pages.`}>
           <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{result.answer}</div>
         </Card>
       )}

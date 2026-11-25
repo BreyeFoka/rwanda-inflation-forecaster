@@ -54,6 +54,8 @@ export const SeriesChart: React.FC<Props> = ({ observations, forecast, unit, hei
   };
 
   return (
+    <div>
+    <div className={`${compact ? 'text-[10px]' : 'text-[11px]'} text-slate-500 mb-1`}>{unit === '%' ? '% change compared with a year before' : unit}</div>
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         {!compact && <CartesianGrid stroke={INK.grid} vertical={false} />}
@@ -82,5 +84,6 @@ export const SeriesChart: React.FC<Props> = ({ observations, forecast, unit, hei
         <Tooltip content={renderTooltip} cursor={{ stroke: INK.muted }} />
       </ComposedChart>
     </ResponsiveContainer>
+    </div>
   );
 };

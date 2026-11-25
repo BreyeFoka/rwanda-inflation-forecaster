@@ -1,7 +1,8 @@
-"""Pulls real monthly Rwanda macro series from public APIs into a local SQLite store.
+"""Pulls real monthly Rwanda macro series into a local SQLite store.
 
-Sources: IMF Data API (CPI, exchange rates, interest rates, commodity prices),
-World Bank Global Economic Monitor, WFP food prices (via HDX), Open-Meteo ERA5 archive.
+Sources: NISR publications in nisr/ (CPI, PPI, EICV7 poverty profile), IMF Data API (CPI before
+2009, exchange rates, interest rates, commodity prices), World Bank Global Economic Monitor,
+WFP food prices (via HDX), Open-Meteo ERA5 archive.
 
 Run:  python ingest.py
 """
@@ -9,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import os
 import re
 import sqlite3
@@ -20,9 +22,12 @@ from pathlib import Path
 
 import requests
 
+import nisr
+
 # DATA_DIR points at a persistent volume in production.
 DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
 DB_PATH = DATA_DIR / "godseye.db"
+POVERTY_PATH = DATA_DIR / "poverty.json"
 IMF = "https://api.imf.org/external/sdmx/2.1/data"
 WB = "https://api.worldbank.org/v2/country/RWA/indicator"
 WFP_CSV = (
@@ -155,6 +160,39 @@ def ingest_cpi(conn) -> None:
               "IMF Consumer Price Index dataset (compiled from NISR)", f"{IMF}/IMF.STA,CPI/{key}", obs)
 
 
+def ingest_nisr_cpi(conn) -> None:
+    """NISR's own CPI file: fresher than the IMF copy, and the only source of urban, rural and core indices.
+
+    For the all-Rwanda series NISR's values (Feb 2009 on) are laid over the stored IMF history,
+    which keeps the IMF's 2004-2009 months that the NISR file does not carry. The two agree to
+    rounding where they overlap.
+    """
+    path, rows = nisr.cpi_series()
+    for sid, name, unit, obs in rows:
+        if sid == "cpi.all" or sid.startswith("cpi.cp"):  # also published by the IMF: keep its earlier months
+            stored = conn.execute("SELECT period, value FROM observations WHERE series_id = ? AND period < ?",
+                                  (sid, min(obs))).fetchall()
+            obs = {**dict(stored), **obs}
+            source, grp = "NISR CPI time series (from Feb 2009); IMF CPI dataset for earlier months", "cpi"
+        else:
+            source, grp = "NISR CPI time series", "cpi_detail"
+        store(conn, sid, name, unit, grp, f"{source} ({path.name})", nisr.CPI_URL, obs)
+
+
+def ingest_nisr_ppi(conn) -> None:
+    path, rows = nisr.ppi_series()
+    for sid, name, unit, obs in rows:
+        store(conn, sid, name, unit, "ppi", f"NISR Producer Price Index ({path.name})", nisr.PPI_URL, obs)
+
+
+def ingest_eicv7() -> None:
+    """The EICV7 poverty profile is a survey snapshot, not a monthly series, so it is kept as JSON."""
+    profile = nisr.eicv7_profile()
+    tmp = POVERTY_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(profile, indent=1))
+    tmp.replace(POVERTY_PATH)
+
+
 def ingest_imf(conn, sid, name, unit, grp, flow, key) -> None:
     result = fetch_imf(flow, key)
     if not result:
@@ -225,7 +263,9 @@ def ingest_rainfall(conn) -> None:
 def run() -> dict[str, str]:
     """Runs every fetcher; a failed source keeps its previous data. Returns {job: 'ok' | error}."""
     conn = connect()
-    jobs = [("cpi", lambda: ingest_cpi(conn))]
+    # The NISR CPI job runs after the IMF one so it can keep the IMF's pre-2009 months.
+    jobs = [("cpi", lambda: ingest_cpi(conn)), ("nisr_cpi", lambda: ingest_nisr_cpi(conn)),
+            ("nisr_ppi", lambda: ingest_nisr_ppi(conn)), ("nisr_eicv7", ingest_eicv7)]
     jobs += [(s[0], lambda s=s: ingest_imf(conn, *s)) for s in IMF_SERIES]
     jobs += [(s[0], lambda s=s: ingest_wb(conn, *s)) for s in WB_SERIES]
     jobs += [("food", lambda: ingest_wfp(conn)), ("rainfall", lambda: ingest_rainfall(conn))]

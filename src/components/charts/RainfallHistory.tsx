@@ -27,7 +27,7 @@ export const RainfallHistory: React.FC<{ rain: Observation[]; anomaly: Observati
         title={formatPeriod(row.period)}
         rows={[
           { label: 'Rainfall', value: `${row.rain.toFixed(0)} mm`, color: DIVERGING.above },
-          { label: 'Normal for the month', value: `${row.normal.toFixed(0)} mm`, color: INK.secondary },
+          { label: 'Usual for the month', value: `${row.normal.toFixed(0)} mm`, color: INK.secondary },
           { label: 'Difference', value: signed(row.anomaly, '%', 0) }
         ]}
       />
@@ -35,6 +35,8 @@ export const RainfallHistory: React.FC<{ rain: Observation[]; anomaly: Observati
   };
 
   return (
+    <div>
+    <div className="text-[10px] text-slate-500 mb-1">Millimetres of rain per month</div>
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap={2}>
         <XAxis
@@ -51,5 +53,6 @@ export const RainfallHistory: React.FC<{ rain: Observation[]; anomaly: Observati
         <Line dataKey="normal" type="stepAfter" stroke={INK.secondary} strokeWidth={1.5} dot={false} isAnimationActive={false} activeDot={false} />
       </ComposedChart>
     </ResponsiveContainer>
+    </div>
   );
 };
