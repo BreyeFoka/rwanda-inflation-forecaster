@@ -6,8 +6,7 @@ export const BAND = '#059669';
 export const AREA = { national: '#059669', urban: '#338ced', rural: '#e76624' };
 // Other measures, each validated against the area colours it is drawn beside: core with urban and rural, PPI with urban.
 export const MEASURE = { core: '#00a888', ppi: '#d28e05' };
-/** The earlier survey in a then-vs-now comparison: recessive grey, so the current year carries the colour. */
-export const EARLIER = '#475569';
+
 export const INK = { primary: '#e2e8f0', secondary: '#94a3b8', muted: '#64748b', grid: '#1e293b', axis: '#334155' };
 export const AXIS_TICK = { fill: INK.muted, fontSize: 11, fontFamily: 'JetBrains Mono, ui-monospace, monospace' };
 

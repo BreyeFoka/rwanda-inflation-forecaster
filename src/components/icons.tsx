@@ -13,6 +13,7 @@ export const AlertTriangle = icon(H.Alert02Icon);
 export const ArrowDown = icon(H.ArrowDown02Icon);
 export const ArrowRight = icon(H.ArrowRight02Icon);
 export const ArrowUp = icon(H.ArrowUp02Icon);
+export const Info = icon(H.InformationCircleIcon);
 export const Loader2 = icon(H.Loading03Icon);
 export const Minus = icon(H.MinusSignIcon);
 export const RefreshCw = icon(H.RefreshIcon);

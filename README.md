@@ -14,20 +14,19 @@ We had two goals:
 1. Help government institutions see price rises coming early, so they can take the right measures in time, for example support for families, food stock decisions, or adjusting policy.
 2. Help ordinary people and businesses know what prices are likely to do, so they can plan their budgets, savings and purchases ahead of the rises.
 
-This fits Rwanda's national priorities. NST2 (2024–2029), under its economic transformation pillar, aims to keep the economy stable, and stable prices are part of that. Under its social transformation pillar it aims to reduce poverty, and rising food prices push families back towards the poverty line. Vision 2050 aims for high living standards for all Rwandans, which depends on incomes keeping up with prices. Our project gives decision makers an early, tested view of where prices are going so they can act in time.
+This fits Rwanda's national priorities. NST2 (2024–2029), under its economic transformation pillar, aims to keep the economy stable, and stable prices are part of that. Vision 2050 aims for high living standards for all Rwandans, which depends on incomes keeping up with prices. Our project gives decision makers an early, tested view of where prices are going so they can act in time.
 
-Around the forecast we added the things that help explain it: food prices, the exchange rate, world oil and grain prices, rainfall, factory prices, and how prices and poverty differ between towns and villages.
+Around the forecast we added the things that help explain it: inflation in towns and villages, food prices, the exchange rate, world oil and grain prices, rainfall and factory prices.
 
 ## What's in the app
 
 - Overview: current inflation, the forecast, and which kinds of spending went up the most.
-- Inflation: the 12-month forecast with a likely range, how accurate our forecasts were in the past, towns vs villages, and factory prices (they usually move before shop prices).
+- Inflation: the 12-month forecast with a likely range, inflation in towns and villages, factory prices (they usually move before shop prices), and the trend for each kind of spending.
 - Food prices: market prices for beans, maize, potatoes, rice, cassava flour and other staples.
 - Markets: exchange rate and world prices for oil, grain and fertiliser.
 - Rainfall: rain in each province compared with a normal year, since bad rain means bad harvests and higher food prices.
-- Poverty and prices (extra): poverty by province in 2017 and 2024 from the EICV7 survey, next to current town and village price rises.
 - AI analyst: you can ask a question and it answers using only numbers that are already on the site.
-- Data: where every number comes from and how recent it is.
+- Data: how accurate our past forecasts were, where every number comes from, and how recent it is.
 
 ## Data we used
 
@@ -35,7 +34,6 @@ From NISR:
 
 - Consumer Price Index time series (up to October 2026): whole country, towns, villages, food, local and imported goods, and the index without fresh food and energy.
 - Producer Price Index (up to September 2026).
-- EICV7 poverty profile tables (2024 survey).
 
 Other public sources:
 
@@ -50,8 +48,6 @@ The NISR Excel files are in `forecaster/nisr/`. Everything else is downloaded fr
 
 The backend is in Python. `ingest.py` and `nisr.py` read all the sources and put them into one SQLite database (65 monthly series). We joined NISR's CPI onto the IMF's older data so the history goes back to 2004; where both exist they agree to within 0.01. For market food prices we take the median across markets so one strange market doesn't throw off the number.
 
-While reading the EICV7 tables we found two mistakes in NISR's published tables (town and village poverty rates that don't match between two tables, and a wrong sign on the East's change in extreme poverty). The code works out every change from the raw numbers instead of trusting the printed ones, and the site explains what we changed.
-
 For the forecast we use a seasonal ARIMA model from statsmodels. It learns the normal ups and downs in prices, including the yearly harvest pattern, and projects 12 months forward. We picked it by testing. We went back to each of the last 72 months, made a forecast using only the data that existed at that time, and compared it with what actually happened. We did the same with Google's TimesFM AI model and with a simple guess that inflation stays the same. ARIMA had the smallest errors at every time horizon:
 
 | Method | 1 month ahead | 3 months | 6 months | 12 months |
@@ -64,7 +60,7 @@ The numbers are the average miss in percentage points of inflation, tested on da
 
 The likely range around the forecast comes from how wrong the model was in the past, and it gets wider when prices have been jumping around a lot. It should contain the real number about 8 times out of 10.
 
-For the AI analyst, the server writes a list of fact sentences from the data (current inflation, each spending group, towns and villages, the forecast, the accuracy test, poverty by province), and the AI model (through OpenRouter) is only allowed to pick which ones answer the question. The server checks the picks and returns its own sentences unchanged, so the AI can't make up numbers. If no fact fits, it says the data doesn't answer the question.
+For the AI analyst, the server writes a list of fact sentences from the data (current inflation, each spending group, towns and villages, factory prices, the forecast and the accuracy test), and the AI model (through OpenRouter) is only allowed to pick which ones answer the question. The server checks the picks and returns its own sentences unchanged, so the AI can't make up numbers. If no fact fits, it says the data doesn't answer the question.
 
 We tested it with questions where we already knew the answer from the data (25 November 2026):
 
@@ -74,7 +70,7 @@ We tested it with questions where we already knew the answer from the data (25 N
 | How much did prices rise in villages compared with towns? | Villages 31.3%, towns 19.5% | Gave both: villages 31.29%, towns 19.46% |
 | How accurate is the forecast one month ahead? | 1.19 points, range held 82% | "off by 1.19 percentage points on average… inside its likely range 82% of the time" |
 | What will inflation be in October 2027? | 14.4% (7.1% to 21.7%) | "most likely 14.44%… probably between 7.14% and 21.71%" |
-| Which province has the highest poverty rate? | West, 37.4% | Listed all five provinces with their rates (West 37.4% is the highest) but didn't single it out |
+| Which kind of spending had the biggest price rise? | Food and drinks, 39.1% | "food and non-alcoholic beverages cost 39.12% more than a year before; three months earlier the rise was 12.56%" |
 | Who will win the next football World Cup? | Not in our data | "The supplied data does not answer that question." |
 
 The free OpenRouter models sometimes time out; when that happens the site shows an error instead of an answer.

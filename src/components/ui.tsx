@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ApiState } from '../lib/api';
-import { AlertTriangle, ArrowRight, Loader2 } from './icons';
+import { AlertTriangle, ArrowRight, Info, Loader2 } from './icons';
 import { Sparkline } from './Sparkline';
 
 export const PageHeader: React.FC<{ title: string; description: string; children?: React.ReactNode }> = ({ title, description, children }) => (
@@ -19,15 +19,20 @@ interface CardProps {
   note?: string;
   /** Route to the page that covers this card's subject in detail. */
   more?: { to: string; label: string };
+  /** Explanation shown behind an (i) icon next to the title. */
+  info?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
 }
 
-export const Card: React.FC<CardProps> = ({ title, note, more, className = '', children }) => (
+export const Card: React.FC<CardProps> = ({ title, note, more, info, className = '', children }) => (
   <section className={`rounded-xl border border-slate-800 bg-slate-900/60 p-5 ${className}`}>
     <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-4">
       <div>
-        <h2 className="text-sm font-semibold text-white">{title}</h2>
+        <h2 className="text-sm font-semibold text-white flex items-center gap-1.5">
+          {title}
+          {info && <InfoTip label={`About: ${title}`}>{info}</InfoTip>}
+        </h2>
         {note && <p className="text-xs text-slate-400 mt-0.5">{note}</p>}
       </div>
       {more && (
@@ -101,3 +106,28 @@ export const StaleBadge: React.FC<{ months: number }> = ({ months }) =>
   months > 6 ? (
     <span className="inline-flex items-center gap-1 text-[11px] text-amber-400"><AlertTriangle className="w-3 h-3" />{months} months old</span>
   ) : null;
+
+/** Small (i) button that shows an explanation on hover, focus or tap. */
+export const InfoTip: React.FC<{ label: string; children: React.ReactNode; align?: 'left' | 'right' }> = ({ label, children, align = 'left' }) => {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <span className="relative inline-flex align-middle" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="text-slate-500 hover:text-slate-200 focus:text-slate-200 rounded-full"
+      >
+        <Info className="w-4 h-4" />
+      </button>
+      {open && (
+        <span role="tooltip" className={`absolute top-6 z-20 w-72 max-w-[80vw] rounded-lg border border-slate-700 bg-slate-900 p-3 text-xs font-normal leading-relaxed text-slate-300 shadow-xl ${align === 'right' ? 'right-0' : 'left-0'}`}>
+          {children}
+        </span>
+      )}
+    </span>
+  );
+};

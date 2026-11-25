@@ -10,7 +10,6 @@ NISR data is read from the Excel files in `forecaster/nisr/` by `forecaster/nisr
 
 - CPI time series: the all-Rwanda index and its 12 spending groups, the urban and rural indices (all items and food), and the urban analytical indices (local goods, imported goods, fresh products, energy, and the index without fresh products and energy). Base is February 2014 = 100, monthly from February 2009.
 - PPI: all industry, mining, manufacturing, food manufacturing, beverages, electricity, water, local sales and exports. Monthly from December 2010.
-- EICV7 poverty profile: poverty and extreme poverty by province and area for 2024 and 2017, poverty gap, median consumption, Gini, access to electricity, income sources, savings and mobile money, and shocks.
 
 The parser looks rows up by their codes and labels, and stops with an error if the layout changes, so a new NISR file can't quietly load the wrong rows.
 
@@ -23,15 +22,6 @@ The other sources come from APIs:
 - Open-Meteo ERA5 rainfall at one point per province. Daily rain is added up per month and compared with the 1991–2020 average for that month.
 
 If one source fails during a refresh, the old data for it is kept and the failure is reported.
-
-### Fixes to the EICV7 tables
-
-Two things in NISR's tables don't add up, so we don't copy them as printed:
-
-- Table 5.1 gives urban and rural poverty as 16.7% and 31.6%, but its own change column (−6.2 and −13.7 points from 18.9% and 44.3%) and Table 5.2 both give 12.7% and 30.6%. We use 12.7% and 30.6%.
-- Table 5.1 gives the East's change in extreme poverty as +9, but the levels are 9.7% in 2017 and 4.5% in 2024, which is −5.2.
-
-Every change on the site is calculated from the levels. Table 5.3's consumption figures are in thousands of RWF, which the table doesn't say, so we multiply by 1,000.
 
 ## 2. What we forecast
 
@@ -62,7 +52,7 @@ We report two things:
 - The average miss (mean absolute error), in percentage points of inflation.
 - How often the real number fell inside the 80% range (between the 10th and 90th percentiles). If the range is right, that should happen about 80% of the time. For ARIMA this is the range from section 5, built at each date only from errors that were already known then.
 
-The test reruns when a new CPI month comes in. The latest results are at `GET /backtest` and on the Inflation page.
+The test reruns when a new CPI month comes in. The latest results are at `GET /backtest` and on the Data page.
 
 ## 5. The forecast on the site
 
@@ -80,15 +70,15 @@ So the range gets wider when prices have been volatile, like now, and narrower w
 
 TimesFM stays in the test only as a comparison, and for the food price projections. Its weights are under Google's TimesFM Non-Commercial License.
 
-## 6. Town, village and poverty figures
+## 6. Town and village figures
 
-Next to the forecast, the API (`/overview` and `/poverty`) shows the latest yearly change for the urban, rural, core, urban food, rural food, local, imported and PPI indices. On the poverty page we also show how much urban and rural prices have risen since January 2024, because the EICV7 poverty line (RWF 560,127 per adult equivalent per year) is set in January 2024 prices. Multiplying the line by the rural price rise gives a rough idea of what the same standard of living costs now. That's only an indication; we don't re-estimate poverty.
+Next to the forecast, `/overview` shows the latest yearly change for the urban, rural, core (urban without fresh products and energy), urban food, rural food, local goods, imported goods and PPI indices. These are shown as they are; we only forecast the all-Rwanda index.
 
 ## 7. AI analyst
 
 `POST /analyst` builds factual statements from the headline figures, the last 24 months of inflation, the forecast and the backtest. OpenRouter only selects statement IDs. The server rejects unknown IDs and returns its own unchanged statements, or a no-data answer. The general briefing is cached for the exact fact set, and requests are limited per IP address per hour. The analyst selects relevant evidence; it does not create numbers or prose.
 
-The statements now also cover town and village inflation, PPI, and the EICV7 poverty figures.
+The statements also cover town and village inflation and factory prices (PPI).
 
 ## 8. Limits
 

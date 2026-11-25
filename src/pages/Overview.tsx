@@ -40,11 +40,11 @@ export const Overview: React.FC = () => {
           </li>
           <li className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
             <div className="font-semibold text-white">What's behind it</div>
-            <div className="text-slate-400 mt-1">Food prices, the exchange rate, world oil prices, rainfall, factory prices, and prices and poverty in towns and villages.</div>
+            <div className="text-slate-400 mt-1">Inflation in towns and villages, food prices, the exchange rate, world oil prices, rainfall and factory prices.</div>
           </li>
         </ul>
         <p className="text-xs text-slate-400 mt-4 max-w-3xl">
-          Supports NST2's goals of economic stability and poverty reduction, and Vision 2050's aim of high living standards for all Rwandans.
+          Supports NST2's goal of a stable economy and Vision 2050's aim of high living standards for all Rwandans.
         </p>
         <div className="flex flex-wrap gap-3 mt-6">
           <Link to="/inflation" className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm">See the forecast</Link>
