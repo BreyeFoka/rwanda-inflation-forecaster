@@ -5,7 +5,9 @@ import { ApiError, CatalogEntry, postJson, useApi } from '../lib/api';
 import { formatPeriod, monthsOld } from '../lib/theme';
 
 const GROUP_LABELS: Record<string, string> = {
-  cpi: 'Consumer prices',
+  cpi: 'Shop prices, whole country',
+  cpi_detail: 'Shop prices in towns and villages',
+  ppi: 'Factory and producer prices',
   food: 'Food prices',
   fx: 'Exchange rates',
   rates: 'Interest rates',
@@ -16,6 +18,9 @@ const GROUP_LABELS: Record<string, string> = {
 
 export const DataPage: React.FC = () => {
   const catalog = useApi<CatalogEntry[]>('/catalog');
+  const health = useApi<{ snapshot?: boolean }>('/health');
+  // The hosted site serves a fixed snapshot; only a full server can re-pull the sources on request.
+  const live = health.data ? !health.data.snapshot : false;
   const [refreshing, setRefreshing] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -35,27 +40,36 @@ export const DataPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Data and methods" description="Every figure on this site comes from the public sources below. The store refreshes itself once a day.">
-        <button onClick={refresh} disabled={refreshing} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-white text-slate-950 font-semibold text-xs flex items-center gap-1.5 disabled:opacity-50">
+      <PageHeader
+        title="Data and methods"
+        description={live
+          ? 'Where every figure on this site comes from. The data updates itself once a day.'
+          : 'Where every figure on this site comes from. We update the data each month, after NISR publishes its new price figures (around the 10th).'}
+      >
+        {live && <button onClick={refresh} disabled={refreshing} className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-white text-slate-950 font-semibold text-xs flex items-center gap-1.5 disabled:opacity-50">
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />{refreshing ? 'Refreshing…' : 'Refresh now'}
-        </button>
+        </button>}
       </PageHeader>
       {note && <p role="status" className="text-sm text-slate-300">{note}</p>}
 
       <Card title="How to read this site">
         <ul className="text-sm text-slate-300 space-y-2 list-disc pl-5 max-w-3xl leading-relaxed">
-          <li>Inflation here is the national consumer price index for all of Rwanda. The National Bank of Rwanda's 2–8% band is set for urban inflation, which this data source does not carry, so the band on the charts is a rough reference.</li>
-          <li>The forecast comes from a seasonal ARIMA model, the method with the lowest error in the accuracy test. It projects the price index twelve months ahead from its own history; inflation is then worked out from the projected index.</li>
-          <li>The shaded range is built from the model's own past misses, widened or narrowed to match how volatile prices have been over the last two years. It aims to hold the outcome 80% of the time; the Inflation page shows how often it has.</li>
-          <li>Some sources publish late. Series older than six months are marked.</li>
+          <li>The forecast covers shop prices across the whole country. Rwanda's official headline figure covers towns only, and that is the one the National Bank of Rwanda aims to keep between 2% and 8%. The Inflation and Poverty and prices pages show towns and villages separately.</li>
+          <li>The forecast uses a statistical model that learns from the regular ups and downs of past prices, including seasons like harvests (called seasonal ARIMA). We picked it because it was the most accurate in our tests, beating Google's AI model.</li>
+          <li>The shaded range around the forecast comes from how far off the model has been in the past, and it widens when prices have been jumping around. The real figure should land inside it about 8 times out of 10; the Inflation page shows how often it has.</li>
+          <li>Some sources publish late. Figures more than six months old are marked.</li>
         </ul>
       </Card>
 
       <Card title="Sources and licences">
         <ul className="text-sm text-slate-300 space-y-2 list-disc pl-5 max-w-3xl leading-relaxed">
           <li>
-            <a className="text-white underline" href="https://data.imf.org" target="_blank" rel="noreferrer">International Monetary Fund</a>: consumer prices (compiled from the National Institute of
-            Statistics of Rwanda), exchange rates, interest rates and world commodity prices. Used under the IMF's terms of use for its data.
+            <a className="text-white underline" href="https://www.statistics.gov.rw" target="_blank" rel="noreferrer">National Institute of Statistics of Rwanda (NISR)</a>: the Consumer Price Index
+            time series (all Rwanda, urban, rural, core, local and imported goods, from February 2009), the Producer Price Index (from December 2010), and the EICV7 poverty profile tables (2024 household survey).
+            Read directly from NISR's published Excel files.
+          </li>
+          <li>
+            <a className="text-white underline" href="https://data.imf.org" target="_blank" rel="noreferrer">International Monetary Fund</a>: consumer prices before 2009 (compiled from NISR), exchange rates, interest rates and world commodity prices. Used under the IMF's terms of use for its data.
           </li>
           <li>
             <a className="text-white underline" href="https://datacatalog.worldbank.org/search/dataset/0037798" target="_blank" rel="noreferrer">World Bank Global Economic Monitor</a>: merchandise exports. Licensed CC BY 4.0.
@@ -87,10 +101,10 @@ export const DataPage: React.FC = () => {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-xs text-slate-400 text-left">
-                          <th scope="col" className="font-medium pb-2">Series</th>
+                          <th scope="col" className="font-medium pb-2">Figure</th>
                           <th scope="col" className="font-medium pb-2">Unit</th>
                           <th scope="col" className="font-medium pb-2 text-right">Months</th>
-                          <th scope="col" className="font-medium pb-2 text-right">Coverage</th>
+                          <th scope="col" className="font-medium pb-2 text-right">Period covered</th>
                         </tr>
                       </thead>
                       <tbody>

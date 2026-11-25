@@ -13,8 +13,8 @@ const RainTooltip: React.FC<{ active?: boolean; payload?: { payload: Rain }[] }>
     <ChartTooltip
       title={r.name}
       rows={[
-        { label: 'Last three months vs normal', value: signed(r.anomaly_3m_pct, '%', 0) },
-        { label: `${formatPeriod(r.period)} vs normal`, value: signed(r.anomaly_pct, '%', 0) },
+        { label: 'Last three months vs usual', value: signed(r.anomaly_3m_pct, '%', 0) },
+        { label: `${formatPeriod(r.period)} vs usual`, value: signed(r.anomaly_pct, '%', 0) },
         { label: `${formatPeriod(r.period)} rainfall`, value: `${r.rain_mm} mm` }
       ]}
     />
@@ -39,8 +39,8 @@ export const RainfallBars: React.FC<{ rainfall: Rain[] }> = ({ rainfall }) => {
         </BarChart>
       </ResponsiveContainer>
       <div className="flex items-center gap-5 text-[11px] text-slate-400 mt-2">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm" style={{ background: DIVERGING.above }} />Wetter than normal</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm" style={{ background: DIVERGING.below }} />Drier than normal</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm" style={{ background: DIVERGING.above }} />Wetter than usual</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm" style={{ background: DIVERGING.below }} />Drier than usual</span>
       </div>
     </div>
   );

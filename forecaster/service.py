@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -170,6 +171,31 @@ def _snapshot(frame: pd.DataFrame, meta: dict, sid: str) -> dict:
     }
 
 
+# Inflation measures shown beside the national rate: (series_id, short label, what it means).
+BREAKDOWN_SERIES = [
+    ("cpi.urban", "Towns", "Prices in towns. This is Rwanda's official headline inflation figure, and the central bank aims to keep it between 2% and 8%"),
+    ("cpi.rural", "Villages", "Prices in rural areas, where about 3 in 10 people live below the poverty line"),
+    ("cpi.core", "Underlying (towns)", "Town prices without fresh food and fuel, which jump around; shows the steadier trend"),
+    ("cpi.urban_food", "Food in towns", "Food and drinks bought in towns"),
+    ("cpi.rural_food", "Food in villages", "Food and drinks bought in rural areas"),
+    ("cpi.imported", "Imported goods", "Goods brought in from abroad, sold in towns"),
+    ("cpi.local", "Made in Rwanda", "Goods produced in Rwanda, sold in towns"),
+    ("ppi.all", "Factory prices", "Prices Rwandan producers charge; rises here often reach shops a few months later"),
+]
+
+
+def _inflation_breakdown(frame: pd.DataFrame, meta: dict) -> list[dict]:
+    out = []
+    for sid, label, note in BREAKDOWN_SERIES:
+        if sid not in frame.columns:
+            continue
+        rate = model.yoy(frame[sid].dropna()).dropna()
+        out.append({"series_id": sid, "label": label, "note": note, "period": str(rate.index[-1]),
+                    "yoy": round(float(rate.iloc[-1]), 2), "yoy_prev_month": round(float(rate.iloc[-2]), 2),
+                    "yoy_12m_ago": round(float(rate.iloc[-13]), 2), "source": meta[sid]["source"]})
+    return out
+
+
 @app.get("/")
 def root() -> dict:
     return {"service": "Rwanda Inflation Forecaster API", "docs": "/docs", "health": "/health"}
@@ -177,7 +203,8 @@ def root() -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "has_data": _has_data()}
+    # snapshot: the site serves fixed data that is rebuilt and redeployed by hand, so it has no refresh button.
+    return {"ok": True, "has_data": _has_data(), "snapshot": SNAPSHOT_MODE}
 
 
 @app.get("/overview")
@@ -200,6 +227,7 @@ def overview() -> dict:
                          # Sum of the last three months against the same months' normal.
                          "anomaly_3m_pct": round(100.0 * (mm.iloc[-3:].sum() / (mm.iloc[-3:] / (1 + anom.iloc[-3:] / 100)).sum() - 1))})
     return {
+        "breakdown": _inflation_breakdown(frame, meta),
         "inflation": {
             "name": "National CPI (all Rwanda), year-on-year",
             "period": str(inflation.index[-1]),
@@ -251,6 +279,25 @@ def catalog() -> list[dict]:
     conn.close()
     keys = ["series_id", "name", "unit", "group", "source", "source_url", "fetched_at", "n", "first_period", "last_period"]
     return [dict(zip(keys, r)) for r in rows]
+
+
+@app.get("/poverty")
+def poverty() -> dict:
+    """EICV7 (2024) poverty profile, with current urban and rural inflation beside it."""
+    _require_data()
+    if not ingest.POVERTY_PATH.exists():
+        raise HTTPException(503, "The poverty profile has not been loaded yet.")
+    profile = json.loads(ingest.POVERTY_PATH.read_text())
+    frame, meta = model.load_frame(), _meta()
+    profile["inflation_now"] = [b for b in _inflation_breakdown(frame, meta)
+                                if b["series_id"] in ("cpi.urban", "cpi.rural", "cpi.urban_food", "cpi.rural_food")]
+    # Real terms: how far prices have risen since the survey's reference month (January 2024 prices).
+    rises = {}
+    for area in ("urban", "rural"):
+        index = frame[f"cpi.{area}"].dropna()
+        rises[area] = round(100.0 * (float(index.iloc[-1]) / float(index[pd.Period("2024-01", "M")]) - 1.0), 1)
+    profile["price_rise_since_survey_pct"] = {**rises, "to": str(frame["cpi.urban"].dropna().index[-1])}
+    return profile
 
 
 @app.get("/forecast")
@@ -323,7 +370,20 @@ def _analyst_context() -> dict:
         ],
         "forecast_model": {"model": fc["model"], "variant": fc["variant"], "last_observed": fc["last_observed"]},
         "backtest": model.get_backtest(compute=False) or "not computed yet",
+        "poverty": poverty() if ingest.POVERTY_PATH.exists() else None,
     }
+
+
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+
+def _short_source(source: str) -> str:
+    """A reader-friendly source name for the analyst's sentences."""
+    for prefix, name in (("NISR", "National Institute of Statistics of Rwanda"), ("IMF", "IMF"), ("World Bank", "World Bank"),
+                         ("WFP", "World Food Programme"), ("Open-Meteo", "Open-Meteo weather archive")):
+        if source.startswith(prefix):
+            return name
+    return source
 
 
 def _analyst_facts(context: dict) -> dict[str, str]:
@@ -331,22 +391,26 @@ def _analyst_facts(context: dict) -> dict[str, str]:
     facts: dict[str, str] = {}
 
     def add(sentence: str) -> None:
+        # 2026-10 -> October 2026
+        sentence = re.sub(r"\b(\d{4})-(\d{2})\b", lambda m: f"{MONTHS[int(m.group(2)) - 1]} {m.group(1)}", sentence)
         facts[f"F{len(facts) + 1}"] = sentence
 
     overview_data = context["overview"]
     inflation = overview_data["inflation"]
-    add(f"In {inflation['period']}, observed national CPI inflation was {inflation['yoy']}% year on year (source: {inflation['source']}).")
-    add(f"In {inflation['period']}, national CPI rose {inflation['mom']}% from the previous month; year-on-year inflation in the previous month was {inflation['yoy_prev_month']}%.")
+    add(f"In {inflation['period']}, prices across Rwanda were {inflation['yoy']}% higher than a year before (source: {_short_source(inflation['source'])}).")
+    add(f"In {inflation['period']}, prices across Rwanda rose {inflation['mom']}% in a single month; the month before, they were {inflation['yoy_prev_month']}% higher than a year earlier.")
+    for b in overview_data.get("breakdown", []):
+        add(f"{b['label']}: in {b['period']}, prices were {b['yoy']}% higher than a year before, compared with {b['yoy_prev_month']}% the month before and {b['yoy_12m_ago']}% a year ago. {b['note']}. (Source: {_short_source(b['source'])}.)")
     for comp in overview_data["components"]:
-        add(f"In {comp['period']}, {comp['name']} CPI inflation was {comp['yoy']}% year on year; three months earlier it was {comp['yoy_3m_ago']}%.")
+        add(f"In {comp['period']}, {comp['name'].lower()} cost {comp['yoy']}% more than a year before; three months earlier the rise was {comp['yoy_3m_ago']}%.")
     for indicator in overview_data["indicators"]:
-        add(f"In {indicator['period']}, {indicator['name']} was {indicator['value']} {indicator['unit']} (source: {indicator['source']}).")
+        add(f"In {indicator['period']}, {indicator['name']} was {indicator['value']} {indicator['unit']} (source: {_short_source(indicator['source'])}).")
     for rainfall in overview_data["rainfall"]:
-        add(f"In {rainfall['period']}, rainfall at the {rainfall['name']} sample point was {rainfall['rain_mm']} mm, {rainfall['anomaly_pct']}% versus its historical normal. This point is not a province-wide average.")
+        add(f"In {rainfall['period']}, {rainfall['name']} had {rainfall['rain_mm']} mm of rain, {rainfall['anomaly_pct']}% compared with usual for that month. This is measured at one place, not across the whole province.")
     for observed in context["inflation_history_last_24_months"]:
-        add(f"In {observed['period']}, observed national CPI inflation was {observed['yoy']}% year on year.")
+        add(f"In {observed['period']}, prices across Rwanda were {observed['yoy']}% higher than a year before.")
     for projected in context["inflation_forecast"]:
-        add(f"For {projected['period']}, the statistical national CPI inflation forecast is {projected['median']}%, with an 80% interval from {projected['interval80_low']}% to {projected['interval80_high']}%. This is a forecast, not an observation.")
+        add(f"Forecast for {projected['period']}: prices across Rwanda will most likely be {projected['median']}% higher than a year before, probably between {projected['interval80_low']}% and {projected['interval80_high']}%. This is an estimate, not a measured figure.")
     backtest = context["backtest"]
     if isinstance(backtest, dict):
         served = backtest.get("served", "sarima")
@@ -355,12 +419,30 @@ def _analyst_facts(context: dict) -> dict[str, str]:
             error = backtest.get("mae_pp", {}).get(served, {}).get(key)
             coverage = backtest.get("interval80_coverage_pct", {}).get(served, {}).get(key)
             if error is not None:
-                sentence = f"In the historical backtest, the {served} forecast's {horizon}-month mean absolute error was {error} percentage points."
+                sentence = f"When tested on past years, the site's forecast {horizon} month{'s' if horizon > 1 else ''} ahead was off by {error} percentage points on average."
                 if coverage is not None:
-                    sentence += f" Its 80% interval covered {coverage}% of tested outcomes at that horizon."
+                    sentence += f" The real figure fell inside its likely range {coverage}% of the time (it aims for 80%)."
                 add(sentence)
-    add("These figures show associations and forecasts; they do not establish what caused a price change.")
-    add("The national CPI series and urban headline CPI are different measures and should not be treated as interchangeable.")
+    pov = context.get("poverty")
+    if pov:
+        nat = pov["national"]
+        add(f"In 2024, {nat['poor_2024']}% of Rwandans lived below the poverty line and {nat['extreme_2024']}% could not afford enough food, down from {nat['poor_2017']}% and {nat['extreme_2017']}% in 2017 (source: NISR household survey, EICV7).")
+        add(f"The poverty line is RWF {nat['poverty_line_rwf']:,} per adult per year at January 2024 prices; below RWF {nat['extreme_poverty_line_rwf']:,}, a person cannot afford enough food.")
+        for prov in pov["provinces"]:
+            add(f"In 2024, {prov['poor_2024']}% of people in {prov['name']} lived below the poverty line ({prov['extreme_2024']}% could not afford enough food), down from {prov['poor_2017']}% in 2017 (source: NISR household survey).")
+        for area in pov["areas"]:
+            add(f"In 2024, {area['poor_2024']}% of people in {'towns' if area['name'] == 'Urban' else 'villages (rural areas)'} lived below the poverty line (source: NISR household survey).")
+        w = pov["cpi_food_weight_pct"]
+        add(f"Village families spend about {w['rural']}% of their budget on food and drinks; town families about {w['urban']}% (source: NISR).")
+        rise = pov["price_rise_since_survey_pct"]
+        add(f"Between January 2024, when the poverty line was set, and {rise['to']}, prices rose {rise['urban']}% in towns and {rise['rural']}% in villages, so the same money now buys much less.")
+        shock = next((s for s in pov["shocks"]["main_shock"] if s["name"] == "High food prices"), None)
+        if shock:
+            add(f"Among families that had a serious setback in 2024, {shock['poor']}% of poor families and {shock['non_poor']}% of other families said high food prices were the worst one.")
+        fin = pov["finance"]
+        add(f"In 2024, {fin['mobile_money']['poor']}% of poor families used mobile money but only {fin['savings_account']['poor']}% had a savings account; for other families it was {fin['mobile_money']['non_poor']}% and {fin['savings_account']['non_poor']}% (source: NISR household survey).")
+    add("These figures show what happened and what is expected; they do not prove what caused prices to change.")
+    add("Rwanda's official headline inflation figure covers towns only. This site's forecast covers the whole country, towns and villages, so the two numbers differ.")
     return facts
 
 

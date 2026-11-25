@@ -12,17 +12,17 @@ export const Climate: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Rainfall" description="Rain drives harvests, and harvests drive food prices. Each area is compared with its own 1991–2020 average for the same months." />
+      <PageHeader title="Rainfall" description="Rain decides how good harvests are, and harvests decide food prices. Each province is compared with its usual rainfall for the same months (the 1991–2020 average)." />
       <DataState state={overview} label="rainfall data">
         {o => (
           <>
-            <Card title="Last three months against normal" note={`To ${formatPeriod(o.rainfall[0].period)}. One reference point per province.`}>
+            <Card title="Last three months compared with usual" note={`Up to ${formatPeriod(o.rainfall[0].period)}. Measured at one place in each province.`}>
               <RainfallBars rainfall={o.rainfall} />
             </Card>
-            <Card title="Month by month" note="Rainfall in millimetres over the last three years">
+            <Card title="Month by month" note="Rain each month over the last three years, in millimetres">
               <div className="flex items-center gap-5 text-xs text-slate-400 mb-4">
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm" style={{ background: DIVERGING.above }} />Rainfall</span>
-                <span className="flex items-center gap-1.5"><span className="w-4 h-0.5" style={{ background: INK.secondary }} />Normal for the month</span>
+                <span className="flex items-center gap-1.5"><span className="w-4 h-0.5" style={{ background: INK.secondary }} />Usual for that month</span>
               </div>
               <DataState state={history} label="rainfall history">
                 {h => (
@@ -31,7 +31,7 @@ export const Climate: React.FC = () => {
                       <div key={r.series_id}>
                         <div className="flex items-baseline justify-between gap-2 mb-1">
                           <h3 className="text-xs text-slate-300">{r.name}</h3>
-                          <span className="text-xs text-slate-400">{formatPeriod(r.period)}: <span className="font-mono text-slate-100">{r.rain_mm} mm</span>, {signed(r.anomaly_pct, '%', 0)} vs normal</span>
+                          <span className="text-xs text-slate-400">{formatPeriod(r.period)}: <span className="font-mono text-slate-100">{r.rain_mm} mm</span>, {signed(r.anomaly_pct, '%', 0)} vs usual</span>
                         </div>
                         <RainfallHistory rain={h[r.series_id.replace('rain_anom', 'rain')].observations} anomaly={h[r.series_id].observations} />
                       </div>
@@ -41,7 +41,7 @@ export const Climate: React.FC = () => {
               </DataState>
             </Card>
             <p className="text-xs text-slate-500 max-w-3xl">
-              Rainfall is estimated from the ERA5 weather reanalysis at one point in each province, not measured at rain gauges, so local totals can differ.
+              Rainfall is estimated from weather models and satellite data (ERA5) at one place in each province, not measured by rain gauges, so rain in your area may differ.
             </p>
           </>
         )}

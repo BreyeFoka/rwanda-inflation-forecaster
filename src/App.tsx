@@ -3,6 +3,7 @@ import { NavLink, Route, Routes } from 'react-router-dom';
 import { Analyst } from './pages/Analyst';
 import { Climate } from './pages/Climate';
 import { DataPage } from './pages/DataPage';
+import { Households } from './pages/Households';
 import { Inflation } from './pages/Inflation';
 import { Markets } from './pages/Markets';
 import { Overview } from './pages/Overview';
@@ -14,6 +15,7 @@ const PAGES = [
   { to: '/prices', label: 'Food prices', element: <Prices /> },
   { to: '/markets', label: 'Markets', element: <Markets /> },
   { to: '/climate', label: 'Rainfall', element: <Climate /> },
+  { to: '/households', label: 'Poverty and prices', element: <Households /> },
   { to: '/analyst', label: 'AI analyst', element: <Analyst /> },
   { to: '/data', label: 'Data', element: <DataPage /> }
 ];
@@ -54,10 +56,10 @@ export default function App() {
       <footer className="border-t border-slate-900 py-5 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-wrap justify-between gap-2">
           <span>
-            Data: IMF, World Bank, WFP, Open-Meteo. Forecasts: Google TimesFM 3.0.{' '}
+            Data: National Institute of Statistics of Rwanda, IMF, World Bank, World Food Programme, Open-Meteo.{' '}
             <NavLink to="/data" className="underline hover:text-slate-300">Sources and licences</NavLink>
           </span>
-          <span>Forecasts are statistical projections, not official figures.</span>
+          <span>Forecasts are estimates, not official figures.</span>
         </div>
       </footer>
     </div>

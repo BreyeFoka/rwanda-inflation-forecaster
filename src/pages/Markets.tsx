@@ -6,10 +6,9 @@ import { Indicator, SeriesMap, useApi } from '../lib/api';
 import { formatPeriod, formatValue, monthsOld } from '../lib/theme';
 
 const SECTIONS = [
-  { group: 'fx', title: 'Exchange rates', note: 'Francs per unit of foreign currency. A rising line means a weaker franc.' },
-  { group: 'rates', title: 'Interest rates', note: 'Policy, bank and money-market rates.' },
-  { group: 'commodities', title: 'World commodity prices', note: 'Prices that feed into fuel, food and fertiliser costs, and into export earnings.' },
-  { group: 'trade', title: 'Trade', note: 'Goods exports.' }
+  { group: 'fx', title: 'Exchange rates', note: 'How many Rwandan francs one dollar or euro costs. A rising line means the franc is losing value, which makes imports dearer.' },
+  { group: 'commodities', title: 'World commodity prices', note: "World prices of oil, grains, fertiliser, coffee and tea. They affect what Rwanda pays for fuel and food, and earns from exports." },
+  { group: 'trade', title: 'Trade', note: 'Value of goods Rwanda sells abroad.' }
 ];
 
 const Section: React.FC<{ group: string; title: string; note: string }> = ({ group, title, note }) => {
@@ -32,7 +31,7 @@ const Section: React.FC<{ group: string; title: string; note: string }> = ({ gro
                   <span className="text-xs text-slate-500">{i.unit}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 mt-1 mb-2">
-                  <span className="flex items-center gap-1"><Delta value={i.change_yoy} unit={i.change_unit === 'pp' ? ' pp' : '%'} upIsBad={group !== 'trade'} /> on a year ago</span>
+                  <span className="flex items-center gap-1"><Delta value={i.change_yoy} unit={i.change_unit === 'pp' ? ' pp' : '%'} upIsBad={group !== 'trade'} /> since a year ago</span>
                   <span>{formatPeriod(i.period)}</span>
                   <StaleBadge months={monthsOld(i.period)} />
                 </div>
@@ -48,7 +47,10 @@ const Section: React.FC<{ group: string; title: string; note: string }> = ({ gro
 
 export const Markets: React.FC = () => (
   <div className="space-y-8">
-    <PageHeader title="Money and markets" description="The exchange rate, interest rates and world prices that shape import costs, borrowing and export income. Charts show the last ten years." />
+    <PageHeader title="Money and markets" description="The exchange rate and world prices that affect what Rwanda pays for imports and what its exports earn. Charts show the last ten years." />
     {SECTIONS.map(s => <Section key={s.group} {...s} />)}
+    <p className="text-xs text-slate-500 max-w-3xl">
+      Interest rates are not shown here because the latest public figures (IMF) stop in September 2025. They are still listed on the Data page.
+    </p>
   </div>
 );

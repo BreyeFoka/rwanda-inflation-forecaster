@@ -135,10 +135,15 @@ def run_backtest() -> dict:
     origins = list(range(n - 1 - BACKTEST_ORIGINS, n - 1))
     calib_origins = list(range(target.index.get_loc(pd.Period(CALIBRATION_START, "M")), n - 1))
 
-    paths = {
-        "timesfm": timesfm_quantiles(frame, origins, hmax, use_covariates=False),
-        "timesfm_covariates": timesfm_quantiles(frame, origins, hmax, use_covariates=True),
-    }
+    previous = json.loads(BACKTEST_CACHE.read_text()) if BACKTEST_CACHE.exists() else None
+    try:
+        paths = {
+            "timesfm": timesfm_quantiles(frame, origins, hmax, use_covariates=False),
+            "timesfm_covariates": timesfm_quantiles(frame, origins, hmax, use_covariates=True),
+        }
+    except Exception as exc:  # TimesFM is only a comparison; the served model must not depend on it
+        print(f"backtest: TimesFM unavailable ({type(exc).__name__}: {exc}); scoring ARIMA only", flush=True)
+        paths = {}
     sarima_all = {o: _sarima_path(np.log(values[: o + 1]), MAX_HORIZON) for o in calib_origins}
     sarima = np.stack([sarima_all[o] for o in origins])
 
@@ -149,7 +154,7 @@ def run_backtest() -> dict:
         for h in range(1, MAX_HORIZON + 1)
     }
 
-    errors = {m: {h: [] for h in BACKTEST_HORIZONS} for m in ("persistence", "sarima", *paths, "ensemble")}
+    errors = {m: {h: [] for h in BACKTEST_HORIZONS} for m in ("persistence", "sarima", *paths, *(["ensemble"] if paths else []))}
     covered ={m: {h: [] for h in BACKTEST_HORIZONS} for m in ("sarima", *paths)}
     for i, o in enumerate(origins):
         for h in BACKTEST_HORIZONS:
@@ -165,8 +170,9 @@ def run_backtest() -> dict:
                 band = sarima[i, h - 1] * np.exp(_scaled_quantiles(known, _volatility(values, o)))
                 pred = 100.0 * (band / base - 1.0)
                 covered["sarima"][h].append(pred[0] <= actual <= pred[-1])
-            blend = (sarima[i, h - 1] + paths["timesfm"][i, h - 1, 4]) / 2.0
-            errors["ensemble"][h].append(abs(100.0 * (blend / base - 1.0) - actual))
+            if paths:
+                blend = (sarima[i, h - 1] + paths["timesfm"][i, h - 1, 4]) / 2.0
+                errors["ensemble"][h].append(abs(100.0 * (blend / base - 1.0) - actual))
             for name, q in paths.items():
                 pred = 100.0 * (q[i, h - 1] / base - 1.0)
                 errors[name][h].append(abs(pred[4] - actual))
@@ -183,7 +189,7 @@ def run_backtest() -> dict:
         "n_forecasts": {str(h): len(errors["persistence"][h]) for h in BACKTEST_HORIZONS},
         "mae_pp": mae,
         "interval80_coverage_pct": coverage,
-        "best_timesfm_variant": min(paths, key=mean_mae.get),
+        "best_timesfm_variant": min(paths, key=mean_mae.get) if paths else None,
         "best_overall": min(mean_mae, key=mean_mae.get),
         "served": "sarima",
         "calibration": {
@@ -194,6 +200,15 @@ def run_backtest() -> dict:
                                        for h, e in scaled.items()},
         },
     }
+    if not paths and previous and "timesfm" in previous.get("mae_pp", {}):
+        # Keep the last TimesFM comparison, labelled with the data month it was run on.
+        for name in ("timesfm", "timesfm_covariates", "ensemble"):
+            if name in previous["mae_pp"]:
+                result["mae_pp"][name] = previous["mae_pp"][name]
+            if name in previous.get("interval80_coverage_pct", {}):
+                result["interval80_coverage_pct"][name] = previous["interval80_coverage_pct"][name]
+        result["timesfm_asof"] = previous.get("timesfm_asof", previous["asof"])
+        result["best_timesfm_variant"] = previous.get("best_timesfm_variant")
     BACKTEST_CACHE.write_text(json.dumps(result, indent=2))
     return result
 
