@@ -10,5 +10,5 @@ services:
     envVars:
       - key: ALLOWED_ORIGINS
         value: https://rwanda-inflation-forecaster.breye-foka.workers.dev,http://localhost:5173
-      - key: GEMINI_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false

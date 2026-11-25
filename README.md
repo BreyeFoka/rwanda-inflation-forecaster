@@ -13,7 +13,7 @@ A public dashboard of Rwanda's economy, built on published data, with a 12-month
 | Food prices | Retail prices of staples (beans, maize, cassava flour, Irish potatoes, oil and more) across Rwandan markets |
 | Markets | USD/RWF and EUR/RWF exchange rates, interest rates, world commodity prices, exports |
 | Rainfall | Monthly rainfall and its anomaly against the 1991–2020 normal for each province |
-| AI analyst | A plain-language briefing, or answers to questions, written by Gemini from the figures on the site |
+| AI analyst | OpenRouter selects relevant server-generated facts from the figures on the site; unsupported questions get a no-data answer |
 | Data | Every series with its source, unit, coverage and freshness, plus credits and licences |
 
 ## Data
@@ -70,7 +70,7 @@ See [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for the details.
 ```
 public APIs ──> forecaster/ingest.py ──> SQLite store ──> forecaster/service.py (FastAPI)
                                                               │  SARIMA + calibrated ranges, backtest vs TimesFM
-                                                              │  Gemini analyst
+                                                              │  OpenRouter analyst
                                                               ▼
                                       React + Vite dashboard (static, served by Caddy)
 ```
@@ -99,8 +99,8 @@ Service settings (environment variables):
 | --- | --- |
 | `DATA_DIR` | Where the SQLite store, backtest cache and model files live |
 | `ALLOWED_ORIGINS` | Comma-separated origins allowed to call the API |
-| `GEMINI_API_KEY` | Enables the AI analyst; without it, `/analyst` returns 503 |
-| `GEMINI_MODEL` | Gemini model used by the analyst |
+| `OPENROUTER_API_KEY` | Enables the AI analyst; without it, `/analyst` returns 503 |
+| `OPENROUTER_MODEL` | OpenRouter model used by the analyst (default: `openrouter/free`) |
 
 ## API
 
@@ -112,7 +112,7 @@ Service settings (environment variables):
 | `GET /forecast` | 12-month inflation forecast with quantiles |
 | `GET /backtest` | The accuracy test above |
 | `POST /refresh` | Re-pulls every source (rate-limited) |
-| `POST /analyst` | Gemini briefing or answer (rate-limited per IP) |
+| `POST /analyst` | OpenRouter selects server-generated facts for a briefing or answer (rate-limited per IP) |
 
 Interactive docs: [`/docs`](https://dashboard-api.breyefoka.dev/docs).
 
@@ -124,4 +124,4 @@ Interactive docs: [`/docs`](https://dashboard-api.breyefoka.dev/docs).
 
 ## Credits
 
-The served forecast uses seasonal ARIMA from [statsmodels](https://www.statsmodels.org) (BSD). [TimesFM 3.0](https://huggingface.co/google/timesfm-3.0-pytorch) by Google Research is used for the backtest comparison and the food price projections; its weights are under Google's TimesFM Non-Commercial License. The analyst uses Google Gemini; its text can be wrong, so check it against the charts.
+The served forecast uses seasonal ARIMA from [statsmodels](https://www.statsmodels.org) (BSD). [TimesFM 3.0](https://huggingface.co/google/timesfm-3.0-pytorch) by Google Research is used for the backtest comparison and the food price projections; its weights are under Google's TimesFM Non-Commercial License. The analyst uses OpenRouter to select server-generated facts. Check the underlying data and forecast assumptions against the charts.
