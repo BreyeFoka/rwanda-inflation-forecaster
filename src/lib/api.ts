@@ -68,48 +68,6 @@ export interface Backtest {
   timesfm_asof?: string;
 }
 
-interface PovertyLevels {
-  name: string;
-  poor_2024: number;
-  poor_2017: number;
-  poor_change_pp: number;
-  extreme_2024: number;
-  extreme_2017: number;
-  median_consumption_2024: number;
-  gini: number;
-  electricity_2024: number;
-}
-
-/** EICV7 (2024) poverty profile from NISR, with current urban and rural inflation. */
-export interface Poverty {
-  survey: string;
-  source: string;
-  source_url: string;
-  notes: string[];
-  national: PovertyLevels & {
-    extreme_change_pp: number;
-    poor_ci_2024: string;
-    poverty_gap_2024: number;
-    poverty_gap_2017: number;
-    median_consumption_2017: number;
-    poverty_line_rwf: number;
-    extreme_poverty_line_rwf: number;
-    electricity_2017: number;
-    sanitation_2024: number;
-    children_poor: number;
-    adults_poor: number;
-  };
-  provinces: (PovertyLevels & { median_consumption_2017: number; extreme_change_pp: number })[];
-  areas: (PovertyLevels & { poverty_gap_2024: number })[];
-  quintiles: { name: string; median_consumption_2024: number; median_consumption_2017: number }[];
-  income_source: { name: string; poor: number; non_poor: number }[];
-  finance: Record<'savings_account' | 'mobile_money', { poor: number; non_poor: number; all: number }>;
-  shocks: { any_severe: { poor: number; non_poor: number }; main_shock: { name: string; poor: number; non_poor: number }[] };
-  cpi_food_weight_pct: { national: number; urban: number; rural: number };
-  inflation_now: Breakdown[];
-  price_rise_since_survey_pct: { urban: number; rural: number; to: string };
-}
-
 export interface Observation {
   period: string;
   value: number;

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { Accuracy } from '../components/Accuracy';
 import { RefreshCw } from '../components/icons';
 import { Card, DataState, PageHeader, StaleBadge } from '../components/ui';
-import { ApiError, CatalogEntry, postJson, useApi } from '../lib/api';
+import { ApiError, Backtest, CatalogEntry, postJson, useApi } from '../lib/api';
 import { formatPeriod, monthsOld } from '../lib/theme';
 
 const GROUP_LABELS: Record<string, string> = {
@@ -19,6 +20,7 @@ const GROUP_LABELS: Record<string, string> = {
 export const DataPage: React.FC = () => {
   const catalog = useApi<CatalogEntry[]>('/catalog');
   const health = useApi<{ snapshot?: boolean }>('/health');
+  const backtest = useApi<Backtest>('/backtest');
   // The hosted site serves a fixed snapshot; only a full server can re-pull the sources on request.
   const live = health.data ? !health.data.snapshot : false;
   const [refreshing, setRefreshing] = useState(false);
@@ -54,18 +56,34 @@ export const DataPage: React.FC = () => {
 
       <Card title="How to read this site">
         <ul className="text-sm text-slate-300 space-y-2 list-disc pl-5 max-w-3xl leading-relaxed">
-          <li>The forecast covers shop prices across the whole country. Rwanda's official headline figure covers towns only, and that is the one the National Bank of Rwanda aims to keep between 2% and 8%. The Inflation and Poverty and prices pages show towns and villages separately.</li>
+          <li>The forecast covers shop prices across the whole country. Rwanda's official headline figure covers towns only, and that is the one the National Bank of Rwanda aims to keep between 2% and 8%. The Inflation page shows towns and villages separately.</li>
           <li>The forecast uses a statistical model that learns from the regular ups and downs of past prices, including seasons like harvests (called seasonal ARIMA). We picked it because it was the most accurate in our tests, beating Google's AI model.</li>
-          <li>The shaded range around the forecast comes from how far off the model has been in the past, and it widens when prices have been jumping around. The real figure should land inside it about 8 times out of 10; the Inflation page shows how often it has.</li>
+          <li>The shaded range around the forecast comes from how far off the model has been in the past, and it widens when prices have been jumping around. The real figure should land inside it about 8 times out of 10; the accuracy check below shows how often it has.</li>
           <li>Some sources publish late. Figures more than six months old are marked.</li>
         </ul>
+      </Card>
+
+      <Card
+        title="How accurate is the forecast?"
+        note="Checked against what really happened over the past six years"
+        info={backtest.data ? (
+          <>
+            We pretended to stand in each month from {formatPeriod(backtest.data.first_origin)} to {formatPeriod(backtest.data.last_origin)}, made a forecast using only the data
+            known at that time, then compared it with the real inflation rate. The numbers are the average gap in percentage points: ±1.0 means a forecast of 10% usually
+            turned out to be between 9% and 11%. The site uses the method with the smallest gap.
+          </>
+        ) : 'How far past forecasts were from the real inflation rate.'}
+      >
+        <DataState state={backtest} label="the accuracy check">
+          {b => <Accuracy backtest={b} shown="sarima" />}
+        </DataState>
       </Card>
 
       <Card title="Sources and licences">
         <ul className="text-sm text-slate-300 space-y-2 list-disc pl-5 max-w-3xl leading-relaxed">
           <li>
             <a className="text-white underline" href="https://www.statistics.gov.rw" target="_blank" rel="noreferrer">National Institute of Statistics of Rwanda (NISR)</a>: the Consumer Price Index
-            time series (all Rwanda, urban, rural, core, local and imported goods, from February 2009), the Producer Price Index (from December 2010), and the EICV7 poverty profile tables (2024 household survey).
+            time series (all Rwanda, urban, rural, core, local and imported goods, from February 2009), and the Producer Price Index (from December 2010).
             Read directly from NISR's published Excel files.
           </li>
           <li>

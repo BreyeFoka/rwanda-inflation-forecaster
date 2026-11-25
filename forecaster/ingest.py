@@ -1,6 +1,6 @@
 """Pulls real monthly Rwanda macro series into a local SQLite store.
 
-Sources: NISR publications in nisr/ (CPI, PPI, EICV7 poverty profile), IMF Data API (CPI before
+Sources: NISR publications in nisr/ (CPI, PPI), IMF Data API (CPI before
 2009, exchange rates, interest rates, commodity prices), World Bank Global Economic Monitor,
 WFP food prices (via HDX), Open-Meteo ERA5 archive.
 
@@ -27,7 +27,6 @@ import nisr
 # DATA_DIR points at a persistent volume in production.
 DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
 DB_PATH = DATA_DIR / "godseye.db"
-POVERTY_PATH = DATA_DIR / "poverty.json"
 IMF = "https://api.imf.org/external/sdmx/2.1/data"
 WB = "https://api.worldbank.org/v2/country/RWA/indicator"
 WFP_CSV = (
@@ -185,14 +184,6 @@ def ingest_nisr_ppi(conn) -> None:
         store(conn, sid, name, unit, "ppi", f"NISR Producer Price Index ({path.name})", nisr.PPI_URL, obs)
 
 
-def ingest_eicv7() -> None:
-    """The EICV7 poverty profile is a survey snapshot, not a monthly series, so it is kept as JSON."""
-    profile = nisr.eicv7_profile()
-    tmp = POVERTY_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(profile, indent=1))
-    tmp.replace(POVERTY_PATH)
-
-
 def ingest_imf(conn, sid, name, unit, grp, flow, key) -> None:
     result = fetch_imf(flow, key)
     if not result:
@@ -265,7 +256,7 @@ def run() -> dict[str, str]:
     conn = connect()
     # The NISR CPI job runs after the IMF one so it can keep the IMF's pre-2009 months.
     jobs = [("cpi", lambda: ingest_cpi(conn)), ("nisr_cpi", lambda: ingest_nisr_cpi(conn)),
-            ("nisr_ppi", lambda: ingest_nisr_ppi(conn)), ("nisr_eicv7", ingest_eicv7)]
+            ("nisr_ppi", lambda: ingest_nisr_ppi(conn))]
     jobs += [(s[0], lambda s=s: ingest_imf(conn, *s)) for s in IMF_SERIES]
     jobs += [(s[0], lambda s=s: ingest_wb(conn, *s)) for s in WB_SERIES]
     jobs += [("food", lambda: ingest_wfp(conn)), ("rainfall", lambda: ingest_rainfall(conn))]

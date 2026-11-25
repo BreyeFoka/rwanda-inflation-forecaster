@@ -174,7 +174,7 @@ def _snapshot(frame: pd.DataFrame, meta: dict, sid: str) -> dict:
 # Inflation measures shown beside the national rate: (series_id, short label, what it means).
 BREAKDOWN_SERIES = [
     ("cpi.urban", "Towns", "Prices in towns. This is Rwanda's official headline inflation figure, and the central bank aims to keep it between 2% and 8%"),
-    ("cpi.rural", "Villages", "Prices in rural areas, where about 3 in 10 people live below the poverty line"),
+    ("cpi.rural", "Villages", "Prices in rural areas"),
     ("cpi.core", "Underlying (towns)", "Town prices without fresh food and fuel, which jump around; shows the steadier trend"),
     ("cpi.urban_food", "Food in towns", "Food and drinks bought in towns"),
     ("cpi.rural_food", "Food in villages", "Food and drinks bought in rural areas"),
@@ -281,25 +281,6 @@ def catalog() -> list[dict]:
     return [dict(zip(keys, r)) for r in rows]
 
 
-@app.get("/poverty")
-def poverty() -> dict:
-    """EICV7 (2024) poverty profile, with current urban and rural inflation beside it."""
-    _require_data()
-    if not ingest.POVERTY_PATH.exists():
-        raise HTTPException(503, "The poverty profile has not been loaded yet.")
-    profile = json.loads(ingest.POVERTY_PATH.read_text())
-    frame, meta = model.load_frame(), _meta()
-    profile["inflation_now"] = [b for b in _inflation_breakdown(frame, meta)
-                                if b["series_id"] in ("cpi.urban", "cpi.rural", "cpi.urban_food", "cpi.rural_food")]
-    # Real terms: how far prices have risen since the survey's reference month (January 2024 prices).
-    rises = {}
-    for area in ("urban", "rural"):
-        index = frame[f"cpi.{area}"].dropna()
-        rises[area] = round(100.0 * (float(index.iloc[-1]) / float(index[pd.Period("2024-01", "M")]) - 1.0), 1)
-    profile["price_rise_since_survey_pct"] = {**rises, "to": str(frame["cpi.urban"].dropna().index[-1])}
-    return profile
-
-
 @app.get("/forecast")
 def forecast(horizon: int = model.MAX_HORIZON) -> dict:
     _require_data()
@@ -370,7 +351,6 @@ def _analyst_context() -> dict:
         ],
         "forecast_model": {"model": fc["model"], "variant": fc["variant"], "last_observed": fc["last_observed"]},
         "backtest": model.get_backtest(compute=False) or "not computed yet",
-        "poverty": poverty() if ingest.POVERTY_PATH.exists() else None,
     }
 
 
@@ -423,24 +403,6 @@ def _analyst_facts(context: dict) -> dict[str, str]:
                 if coverage is not None:
                     sentence += f" The real figure fell inside its likely range {coverage}% of the time (it aims for 80%)."
                 add(sentence)
-    pov = context.get("poverty")
-    if pov:
-        nat = pov["national"]
-        add(f"In 2024, {nat['poor_2024']}% of Rwandans lived below the poverty line and {nat['extreme_2024']}% could not afford enough food, down from {nat['poor_2017']}% and {nat['extreme_2017']}% in 2017 (source: NISR household survey, EICV7).")
-        add(f"The poverty line is RWF {nat['poverty_line_rwf']:,} per adult per year at January 2024 prices; below RWF {nat['extreme_poverty_line_rwf']:,}, a person cannot afford enough food.")
-        for prov in pov["provinces"]:
-            add(f"In 2024, {prov['poor_2024']}% of people in {prov['name']} lived below the poverty line ({prov['extreme_2024']}% could not afford enough food), down from {prov['poor_2017']}% in 2017 (source: NISR household survey).")
-        for area in pov["areas"]:
-            add(f"In 2024, {area['poor_2024']}% of people in {'towns' if area['name'] == 'Urban' else 'villages (rural areas)'} lived below the poverty line (source: NISR household survey).")
-        w = pov["cpi_food_weight_pct"]
-        add(f"Village families spend about {w['rural']}% of their budget on food and drinks; town families about {w['urban']}% (source: NISR).")
-        rise = pov["price_rise_since_survey_pct"]
-        add(f"Between January 2024, when the poverty line was set, and {rise['to']}, prices rose {rise['urban']}% in towns and {rise['rural']}% in villages, so the same money now buys much less.")
-        shock = next((s for s in pov["shocks"]["main_shock"] if s["name"] == "High food prices"), None)
-        if shock:
-            add(f"Among families that had a serious setback in 2024, {shock['poor']}% of poor families and {shock['non_poor']}% of other families said high food prices were the worst one.")
-        fin = pov["finance"]
-        add(f"In 2024, {fin['mobile_money']['poor']}% of poor families used mobile money but only {fin['savings_account']['poor']}% had a savings account; for other families it was {fin['mobile_money']['non_poor']}% and {fin['savings_account']['non_poor']}% (source: NISR household survey).")
     add("These figures show what happened and what is expected; they do not prove what caused prices to change.")
     add("Rwanda's official headline inflation figure covers towns only. This site's forecast covers the whole country, towns and villages, so the two numbers differ.")
     return facts
