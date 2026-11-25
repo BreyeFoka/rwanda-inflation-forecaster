@@ -19,9 +19,8 @@ export const Overview: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-slate-800 bg-linear-to-br from-emerald-950/60 via-slate-900/60 to-slate-950 px-6 py-8 sm:px-10 sm:py-10">
-        <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">NISR Big Data Hackathon 2026</p>
-        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-white mt-2 max-w-3xl">
+      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-8 sm:px-10 sm:py-10">
+        <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-white max-w-3xl">
           Rwanda's inflation today, and where it's heading
         </h1>
         <p className="text-sm sm:text-base text-slate-300 mt-4 max-w-3xl leading-relaxed">
