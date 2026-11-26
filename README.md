@@ -60,18 +60,18 @@ The numbers are the average miss in percentage points of inflation, tested on da
 
 The likely range around the forecast comes from how wrong the model was in the past, and it gets wider when prices have been jumping around a lot. It should contain the real number about 8 times out of 10.
 
-For the AI analyst, the server writes a list of fact sentences from the data (current inflation, each spending group, towns and villages, factory prices, the forecast and the accuracy test), and the AI model (through OpenRouter) is only allowed to pick which ones answer the question. The server checks the picks and returns its own sentences unchanged, so the AI can't make up numbers. If no fact fits, it says the data doesn't answer the question.
+For the AI analyst, the server first writes a list of fact sentences from the data (current inflation, each spending group, towns and villages, factory prices, the forecast and the accuracy test). When you ask a question, the AI model (through OpenRouter) picks up to four of those facts and writes a short answer from them. Before the answer is shown, the server checks that every number in it appears in the facts the AI picked. If any number doesn't match, the site shows the picked facts instead of the AI's sentence, so the AI can't make up numbers. If no fact fits, it says our data doesn't answer the question. The "quick summary" button doesn't use the AI at all: the server writes it straight from the data, so it is the same every time.
 
-We tested it with questions where we already knew the answer from the data (25 November 2026):
+We tested it with questions where we already knew the answer from the data (26 November 2026):
 
 | Question | Expected (from the data) | What the analyst answered |
 | --- | --- | --- |
-| What was inflation in October 2026? | 26.5% | "prices across Rwanda were 26.52% higher than a year before" |
-| How much did prices rise in villages compared with towns? | Villages 31.3%, towns 19.5% | Gave both: villages 31.29%, towns 19.46% |
-| How accurate is the forecast one month ahead? | 1.19 points, range held 82% | "off by 1.19 percentage points on average… inside its likely range 82% of the time" |
-| What will inflation be in October 2027? | 14.4% (7.1% to 21.7%) | "most likely 14.44%… probably between 7.14% and 21.71%" |
-| Which kind of spending had the biggest price rise? | Food and drinks, 39.1% | "food and non-alcoholic beverages cost 39.12% more than a year before; three months earlier the rise was 12.56%" |
-| Who will win the next football World Cup? | Not in our data | "The supplied data does not answer that question." |
+| What was inflation in October 2026? | 26.5% | "prices across Rwanda were 26.5% higher than a year before, up from 20.0% the month before. Rwanda's official headline inflation figure, which covers towns only, was 19.5%…" |
+| How much did prices rise in villages compared with towns? | Villages 31.3%, towns 19.5% | "Prices in villages rose 31.3% compared with 19.5% in towns." |
+| How accurate is the forecast one month ahead? | 1.2 points, range held 82% | "off by 1.2 percentage points on average, and the real figure fell inside its likely range 82% of the time" |
+| What will inflation be in October 2027? | 14.4% (7.1% to 21.7%) | "most likely 14.4% higher than a year before, probably between 7.1% and 21.7%" |
+| Which kind of spending had the biggest price rise? | Food and drinks, 39.1% | "Food and non-alcoholic beverages had the biggest rise… 39.1% more than a year before. The next largest were communication at 29.1% and transport at 25.9%." |
+| Who will win the next football World Cup? | Not in our data | "Our data doesn't answer that question…" |
 
 The free OpenRouter models sometimes time out; when that happens the site shows an error instead of an answer.
 

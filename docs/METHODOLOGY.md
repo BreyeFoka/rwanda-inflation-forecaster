@@ -76,9 +76,11 @@ Next to the forecast, `/overview` shows the latest yearly change for the urban, 
 
 ## 7. AI analyst
 
-`POST /analyst` builds factual statements from the headline figures, the last 24 months of inflation, the forecast and the backtest. OpenRouter only selects statement IDs. The server rejects unknown IDs and returns its own unchanged statements, or a no-data answer. The general briefing is cached for the exact fact set, and requests are limited per IP address per hour. The analyst selects relevant evidence; it does not create numbers or prose.
+The server builds fact sentences from the headline figures, town and village inflation, factory prices, each spending group, the last 24 months of inflation, the forecast and the accuracy test, with numbers rounded to one decimal.
 
-The statements also cover town and village inflation and factory prices (PPI).
+For a question, `POST /analyst` sends the question and the facts to an OpenRouter model, which returns up to four fact IDs and a short answer. The server rejects unknown IDs, then compares every number in the answer with the numbers in the picked facts (and in the question). If they all match, the answer is shown; if not, the picked facts are shown as written. If no fact fits, the reply says the data doesn't answer the question. Requests are limited per IP address per hour.
+
+The quick summary (an empty question) doesn't call the model: the server writes it from the same data, so it is fast and always the same.
 
 ## 8. Limits
 
