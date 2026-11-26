@@ -81,19 +81,27 @@ More detail on the forecasting is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
 ## Running it locally
 
+First time only, set up the Python environment and the website:
+
 ```bash
-# backend
 cd forecaster
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python ingest.py
-SNAPSHOT_MODE=1 .venv/bin/uvicorn service:app --port 8001
-
-# frontend (in another terminal, from the project root)
+.venv/bin/python ingest.py        # build the database
+cd ..
 pnpm install
-pnpm dev
 ```
 
-Then open <http://localhost:5173>. For the AI analyst to work, put `OPENROUTER_API_KEY=...` in `forecaster/.env`.
+Then start everything with one command:
+
+```bash
+pnpm start:all --offline
+```
+
+Open <http://localhost:5173>. `Ctrl+C` stops both the API and the website.
+
+`--offline` serves the saved data and doesn't download anything, which is what you want on a laptop. Without it (`pnpm start:all`), the API also refreshes all the data from the internet when it starts and tries to load the 1.3 GB TimesFM model, which is slow. To run only the API, use `pnpm forecaster:offline` (or `pnpm forecaster` for the full mode).
+
+For the AI analyst to answer questions, put `OPENROUTER_API_KEY=...` in `forecaster/.env`. The quick summary works without it.
 
 ## Updating the data
 

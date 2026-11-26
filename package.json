@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "pnpm run build && wrangler dev",
     "lint": "tsc --noEmit",
+    "start:all": "node scripts/start-all.mjs",
     "forecaster": "cd forecaster && .venv/bin/python -m uvicorn service:app --port 8001",
+    "forecaster:offline": "cd forecaster && SNAPSHOT_MODE=1 HF_HUB_OFFLINE=1 .venv/bin/python -m uvicorn service:app --port 8001",
     "ingest": "cd forecaster && .venv/bin/python ingest.py",
     "deploy": "VITE_API_URL=https://rwanda-inflation-api.onrender.com pnpm run build && wrangler deploy"
   },
