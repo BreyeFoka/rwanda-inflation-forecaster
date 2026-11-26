@@ -6,9 +6,19 @@ import { formatPeriod } from '../lib/theme';
 
 interface Answer {
   answer: string;
-  model: string;
+  /** summary: written by the server; ai: written by the model and number-checked; facts: the model's picks shown as they are; none: no matching data */
+  mode: 'summary' | 'ai' | 'facts' | 'none';
+  model: string | null;
   data_asof: string;
 }
+
+const answerNote = (r: Answer) => {
+  const asof = formatPeriod(r.data_asof);
+  if (r.mode === 'summary') return `Summary of our data up to ${asof}.`;
+  if (r.mode === 'ai') return `Written by AI from our data up to ${asof}. Every number in it was checked against the data.`;
+  if (r.mode === 'facts') return `The facts from our data (up to ${asof}) that answer your question.`;
+  return `Based on our data up to ${asof}.`;
+};
 
 const SUGGESTIONS = [
   'Which spending categories are pushing inflation up the most?',
@@ -39,7 +49,7 @@ export const Analyst: React.FC = () => {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <PageHeader title="AI analyst" description="Ask a question in plain words. The AI picks the answers from facts already checked on this site, and never makes up numbers. If the site has no data on your question, it says so." />
+      <PageHeader title="AI analyst" description="Ask a question in plain words. The AI answers using only our data, and every number it writes is checked against that data before you see it. If we don't have data on your question, it says so." />
 
       <Card title="Ask about the data">
         <form onSubmit={e => { e.preventDefault(); if (question.trim()) ask(question.trim()); }} className="flex flex-col sm:flex-row gap-2">
@@ -71,7 +81,7 @@ export const Analyst: React.FC = () => {
       {loading && <div role="status" className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" />Finding the relevant facts…</div>}
       {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</div>}
       {result && !loading && (
-        <Card title={asked || 'Briefing'} note={`Facts picked by AI from data up to ${formatPeriod(result.data_asof)}. Double-check important figures on the other pages.`}>
+        <Card title={asked || 'Quick summary'} note={answerNote(result)}>
           <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">{result.answer}</div>
         </Card>
       )}

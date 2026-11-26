@@ -4,7 +4,6 @@ Run:  uvicorn service:app --port 8001
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -43,7 +42,6 @@ SNAPSHOT_MODE = os.environ.get("SNAPSHOT_MODE") == "1"
 SNAPSHOT_FORECAST = ingest.DATA_DIR / "forecast.json"  # written by: python service.py --snapshot-forecast
 
 _forecast_cache: dict[tuple, dict] = {}
-_briefing_cache: dict[str, str] = {}
 _refresh_lock = threading.Lock()
 _backtest_lock = threading.Lock()
 # Railway sleeps the API when idle; the store's age survives restarts, an in-memory timestamp would not.
@@ -56,11 +54,13 @@ HEADLINE_SERIES = [
     "food.beans", "food.maize", "food.irish_potatoes", "food.rice_local", "food.cassava_flour", "food.cooking_oil",
 ]
 
-ANALYST_PROMPT = """Select only facts that directly answer the user's question.
-Return JSON only, in the form {"ids": ["F1", "F2"]}. Use only IDs in the supplied list.
-Return {"ids": []} when the facts cannot answer the question. Do not write prose,
-calculations, explanations, or facts of your own. For a general briefing, select
-the most useful current inflation, forecast, and reliability facts."""
+ANALYST_PROMPT = """You answer questions about prices in Rwanda for ordinary readers.
+You get a question and a numbered list of facts. Pick at most 4 facts that directly answer it.
+Then write a short answer (1 to 3 plain sentences) using only those facts.
+Every number you write must be copied exactly from the facts you picked. Do not calculate,
+round differently, guess, or add anything that is not in the facts.
+Return JSON only: {"ids": ["F1", "F2"], "answer": "..."}.
+If the facts cannot answer the question, return {"ids": [], "answer": ""}."""
 
 
 def _has_data() -> bool:
@@ -86,7 +86,6 @@ def _run_ingest() -> dict[str, str]:
         status = ingest.run()
         _last_refresh = time.time()
         _forecast_cache.clear()
-        _briefing_cache.clear()
         return status
 
 
@@ -357,6 +356,24 @@ def _analyst_context() -> dict:
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
 
+def _r(value) -> str:
+    """One decimal place, the way people read percentages."""
+    return f"{float(value):.1f}"
+
+
+# How each inflation measure is named in the analyst's sentences.
+BREAKDOWN_PHRASES = {
+    "cpi.urban": "In towns (Rwanda's official headline figure)",
+    "cpi.rural": "In villages",
+    "cpi.core": "In towns, leaving out fresh food and fuel",
+    "cpi.urban_food": "Food in towns",
+    "cpi.rural_food": "Food in villages",
+    "cpi.imported": "Imported goods",
+    "cpi.local": "Goods made in Rwanda",
+    "ppi.all": "Factory prices",
+}
+
+
 def _short_source(source: str) -> str:
     """A reader-friendly source name for the analyst's sentences."""
     for prefix, name in (("NISR", "National Institute of Statistics of Rwanda"), ("IMF", "IMF"), ("World Bank", "World Bank"),
@@ -377,20 +394,20 @@ def _analyst_facts(context: dict) -> dict[str, str]:
 
     overview_data = context["overview"]
     inflation = overview_data["inflation"]
-    add(f"In {inflation['period']}, prices across Rwanda were {inflation['yoy']}% higher than a year before (source: {_short_source(inflation['source'])}).")
-    add(f"In {inflation['period']}, prices across Rwanda rose {inflation['mom']}% in a single month; the month before, they were {inflation['yoy_prev_month']}% higher than a year earlier.")
+    add(f"In {inflation['period']}, prices across Rwanda were {_r(inflation['yoy'])}% higher than a year before, up from {_r(inflation['yoy_prev_month'])}% the month before (source: {_short_source(inflation['source'])}).")
+    add(f"In {inflation['period']} alone, prices across Rwanda rose {_r(inflation['mom'])}% from the month before.")
     for b in overview_data.get("breakdown", []):
-        add(f"{b['label']}: in {b['period']}, prices were {b['yoy']}% higher than a year before, compared with {b['yoy_prev_month']}% the month before and {b['yoy_12m_ago']}% a year ago. {b['note']}. (Source: {_short_source(b['source'])}.)")
+        add(f"{BREAKDOWN_PHRASES.get(b['series_id'], b['label'])}: in {b['period']}, prices were {_r(b['yoy'])}% higher than a year before (a year earlier the rise was {_r(b['yoy_12m_ago'])}%).")
     for comp in overview_data["components"]:
-        add(f"In {comp['period']}, {comp['name'].lower()} cost {comp['yoy']}% more than a year before; three months earlier the rise was {comp['yoy_3m_ago']}%.")
+        add(f"In {comp['period']}, {comp['name'].lower()} cost {_r(comp['yoy'])}% more than a year before (three months earlier the rise was {_r(comp['yoy_3m_ago'])}%).")
     for indicator in overview_data["indicators"]:
-        add(f"In {indicator['period']}, {indicator['name']} was {indicator['value']} {indicator['unit']} (source: {_short_source(indicator['source'])}).")
+        add(f"In {indicator['period']}, {indicator['name']} was {_r(indicator['value'])} {indicator['unit']}.")
     for rainfall in overview_data["rainfall"]:
-        add(f"In {rainfall['period']}, {rainfall['name']} had {rainfall['rain_mm']} mm of rain, {rainfall['anomaly_pct']}% compared with usual for that month. This is measured at one place, not across the whole province.")
+        add(f"In {rainfall['period']}, {rainfall['name']} had {_r(rainfall['rain_mm'])} mm of rain, {_r(rainfall['anomaly_pct'])}% compared with usual for that month.")
     for observed in context["inflation_history_last_24_months"]:
-        add(f"In {observed['period']}, prices across Rwanda were {observed['yoy']}% higher than a year before.")
+        add(f"In {observed['period']}, prices across Rwanda were {_r(observed['yoy'])}% higher than a year before.")
     for projected in context["inflation_forecast"]:
-        add(f"Forecast for {projected['period']}: prices across Rwanda will most likely be {projected['median']}% higher than a year before, probably between {projected['interval80_low']}% and {projected['interval80_high']}%. This is an estimate, not a measured figure.")
+        add(f"Our forecast for {projected['period']}: prices across Rwanda most likely {_r(projected['median'])}% higher than a year before, probably between {_r(projected['interval80_low'])}% and {_r(projected['interval80_high'])}%.")
     backtest = context["backtest"]
     if isinstance(backtest, dict):
         served = backtest.get("served", "sarima")
@@ -399,43 +416,85 @@ def _analyst_facts(context: dict) -> dict[str, str]:
             error = backtest.get("mae_pp", {}).get(served, {}).get(key)
             coverage = backtest.get("interval80_coverage_pct", {}).get(served, {}).get(key)
             if error is not None:
-                sentence = f"When tested on past years, the site's forecast {horizon} month{'s' if horizon > 1 else ''} ahead was off by {error} percentage points on average."
-                if coverage is not None:
-                    sentence += f" The real figure fell inside its likely range {coverage}% of the time (it aims for 80%)."
+                sentence = f"Tested on past years, our forecast {horizon} month{'s' if horizon > 1 else ''} ahead was off by {_r(error)} percentage points on average"
+                sentence += f", and the real figure fell inside its likely range {round(coverage)}% of the time." if coverage is not None else "."
                 add(sentence)
     add("These figures show what happened and what is expected; they do not prove what caused prices to change.")
     add("Rwanda's official headline inflation figure covers towns only. This site's forecast covers the whole country, towns and villages, so the two numbers differ.")
     return facts
 
 
-def _selected_fact_answer(content: str, facts: dict[str, str]) -> str:
-    """Ignore every model-authored word except valid fact identifiers."""
+NO_ANSWER = "Our data doesn't answer that question. Try asking about inflation, the forecast, food prices or how accurate the forecast is."
+MAX_FACTS = 4
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _numbers(text: str) -> set[str]:
+    return {n.replace(",", "") for n in _NUMBER.findall(text)}
+
+
+def _checked_answer(content: str, facts: dict[str, str], question: str) -> tuple[str, str]:
+    """Returns (answer, mode). The model's own sentence is used only if every number in it
+    appears in the facts it picked; otherwise the picked facts are shown as they are."""
     try:
-        selection = json.loads(content.strip())
+        selection = json.loads(content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
     except json.JSONDecodeError:
-        return "The supplied data does not answer that question."
-    ids = selection.get("ids") if isinstance(selection, dict) else None
-    if not isinstance(ids, list) or len(ids) > 12 or any(not isinstance(i, str) or i not in facts for i in ids):
-        return "The supplied data does not answer that question."
-    unique_ids = list(dict.fromkeys(ids))
-    return "\n\n".join(facts[i] for i in unique_ids) if unique_ids else "The supplied data does not answer that question."
+        return NO_ANSWER, "none"
+    if not isinstance(selection, dict):
+        return NO_ANSWER, "none"
+    ids = selection.get("ids")
+    if not isinstance(ids, list) or any(not isinstance(i, str) or i not in facts for i in ids):
+        return NO_ANSWER, "none"
+    ids = list(dict.fromkeys(ids))[:MAX_FACTS]
+    if not ids:
+        return NO_ANSWER, "none"
+    picked = [facts[i] for i in ids]
+    written = selection.get("answer")
+    if isinstance(written, str) and 0 < len(written.strip()) <= 600:
+        allowed = _numbers(" ".join(picked)) | _numbers(question)
+        if _numbers(written) <= allowed:
+            return written.strip(), "ai"
+    return "\n\n".join(picked), "facts"
+
+
+def _summary(context: dict) -> str:
+    """The quick summary is written by the server from the data, so it is the same every time."""
+    o = context["overview"]
+    inf = o["inflation"]
+    month = lambda p: f"{MONTHS[int(p[5:7]) - 1]} {p[:4]}"
+    parts = [f"Prices across Rwanda were {_r(inf['yoy'])}% higher in {month(inf['period'])} than a year before, up from {_r(inf['yoy_prev_month'])}% the month before."]
+    by_id = {b["series_id"]: b for b in o.get("breakdown", [])}
+    if "cpi.urban" in by_id and "cpi.rural" in by_id:
+        parts.append(f"In towns, the official headline figure, the rise was {_r(by_id['cpi.urban']['yoy'])}%; in villages it was {_r(by_id['cpi.rural']['yoy'])}%.")
+    if o["components"]:
+        top = o["components"][0]
+        parts.append(f"{top['name']} rose the most, {_r(top['yoy'])}%.")
+    fc = context["inflation_forecast"]
+    if fc:
+        first, last = fc[0], fc[-1]
+        parts.append(f"We expect about {_r(first['median'])}% in {month(first['period'])} and {_r(last['median'])}% by {month(last['period'])} "
+                      f"(likely between {_r(last['interval80_low'])}% and {_r(last['interval80_high'])}%), still well above the central bank's 2–8% target.")
+    bt = context["backtest"]
+    if isinstance(bt, dict):
+        err = bt.get("mae_pp", {}).get(bt.get("served", "sarima"), {}).get("1")
+        if err is not None:
+            parts.append(f"One month ahead, our forecasts have been off by {_r(err)} percentage points on average.")
+    return " ".join(parts)
 
 
 @app.post("/analyst")
 def analyst(body: AnalystRequest, request: Request) -> dict:
-    """A free OpenRouter model explains the data and forecast."""
+    """Quick summary written by the server; questions answered by an OpenRouter model from checked facts."""
     _require_data()
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise HTTPException(503, "The AI analyst is not configured: OPENROUTER_API_KEY is not set on the server.")
     question = body.question.strip()
     context = _analyst_context()
     data_asof = context["forecast_model"]["last_observed"]
-    facts = _analyst_facts(context)
-    cache_key = hashlib.sha256((ANALYST_MODEL + json.dumps(facts, sort_keys=True)).encode()).hexdigest()
-    if not question and cache_key in _briefing_cache:
-        return {"answer": _briefing_cache[cache_key], "model": ANALYST_MODEL, "data_asof": data_asof, "cached": True}
+    if not question:
+        return {"answer": _summary(context), "mode": "summary", "model": None, "data_asof": data_asof, "cached": False}
 
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(503, "The AI analyst is not configured: OPENROUTER_API_KEY is not set on the server.")
     caller = request.headers.get("x-forwarded-for", request.client.host if request.client else "").split(",")[0].strip()
     calls = _analyst_calls[caller]
     while calls and calls[0] < time.time() - 3600:
@@ -444,7 +503,8 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
         raise HTTPException(429, "Too many analyst requests from this address. Try again later.")
     calls.append(time.time())
 
-    prompt = json.dumps({"question": question or "General briefing", "facts": facts})
+    facts = _analyst_facts(context)
+    prompt = json.dumps({"question": question, "facts": facts})
     try:
         response = requests.post(
             ANALYST_API_URL,
@@ -461,11 +521,9 @@ def analyst(body: AnalystRequest, request: Request) -> dict:
             raise ValueError("empty response")
     except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
-        raise HTTPException(502, f"OpenRouter request failed{f' (HTTP {status})' if status else ''}.") from exc
-    answer = _selected_fact_answer(content, facts)
-    if not question and answer != "The supplied data does not answer that question.":
-        _briefing_cache[cache_key] = answer
-    return {"answer": answer, "model": ANALYST_MODEL, "data_asof": data_asof, "cached": False}
+        raise HTTPException(502, f"The AI service didn't respond{f' (HTTP {status})' if status else ''}. Please try again.") from exc
+    answer, mode = _checked_answer(content, facts, question)
+    return {"answer": answer, "mode": mode, "model": ANALYST_MODEL, "data_asof": data_asof, "cached": False}
 
 
 if __name__ == "__main__" and sys.argv[1:] == ["--snapshot-forecast"]:
